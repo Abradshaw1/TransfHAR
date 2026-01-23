@@ -1,28 +1,26 @@
 # IMU-LM SSL Benchmark (TransfHAR)
 
-Self-supervised pretraining and frozen linear probing for IMU-based activity recognition. The goal is to measure **representation quality under dataset shift**—encoders are pretrained once (Stage A) and **frozen** during evaluation (Stage B).
+Self-supervised pretraining and frozen linear probing for IMU-based activity recognition. Everything is built to measure **representation quality under dataset shift**—encoders are pretrained once (Stage A) and **frozen** during evaluation (Stage B).
 
-## Goals
-- Pretrain IMU encoders (FastViT, ViT, TS-Transformer, CNN) with SSL or supervised objectives while holding out the probe dataset.
-- Freeze the encoder and train a linear classifier on the probe dataset (e.g., SAMoSA or any target split).
+## What this repo is for
+- Pretrain IMU encoders (FastViT/ViT on spectrograms; TS-Transformer/CNN on raw) with SSL or supervised objectives while holding out the probe dataset.
+- Freeze the encoder and train a linear classifier on the probe dataset (e.g., SAMoSA or other target splits).
 - Report standardized metrics (balanced accuracy, macro-F1, per-class F1, confusion) and keep everything reproducible in `runs/`.
 
 ## Repository layout
-- `configs/` — `base.yaml` (paths/logging/windowing/loader/optim), `probe.yaml`, and backbone configs (`cnn.yaml`, `tstransformer.yaml`, `vit.yaml`, `fastvit.yaml`).
+- `configs/` — `base.yaml` (paths/logging/windowing/loader/optim), `probe.yaml`, backbone configs (`cnn.yaml`, `tstransformer.yaml`, `vit.yaml`, `fastvit.yaml`).
 - `scripts/` — orchestration entrypoints:
   - `print_config.py` (inspect merged config)
   - `run_pretrain.py` (Stage A)
   - `run_probe_train.py` (Stage B training)
   - `run_probe_eval.py` (Stage B eval)
 - `imu_lm/` — reusable ML logic:
-  - `data/` (windowing, splits, loaders, augmentations for raw/spectrogram)
+  - `data/` (windowing, splits, loaders, augmentations for raw/spectrogram; schema matches continuous_stream v3)
   - `objectives/` (`mae`, `consistency`, `supervised` stubs)
   - `runtime_consistency/` (shared trainer + artifacts I/O)
   - `probe/` (head/trainer/eval/io for frozen encoders)
   - `utils/` (config merge/paths/seeding, metrics)
   - `models/` (CNN, TSTransformer, ViTd, FastViT wiring to shared trainer)
-- `runs/` — all outputs (logs, checkpoints, artifacts, probe results). Never commit contents.
-- `smoke/` — quick integrity and loop checks.
 
 ## Quick Start
 
@@ -39,10 +37,10 @@ Place the unified IMU parquet outside version control, e.g.:
 ```
 /data/imu_ssl/unified_dataset.parquet
 ```
-Set paths in `configs/base.yaml` (e.g., `paths.data_root`, `paths.runs_root`) and specify probe dataset in `configs/probe.yaml`.
+Set paths in `configs/base.yaml` (e.g., `paths.data_root`, `paths.runs_root`) and specify probe dataset in `configs/probe.yaml`. Schema expectation: continuous_stream v3 (50 Hz, FLU axes, acc m/s², gyro rad/s, required keys for dataset/subject/session/timestamp/labels).
 
 ### 3) Configure an experiment
-Pick backbone/objective encoding via backbone config (`cnn.yaml`, `tstransformer.yaml`, `vit.yaml`, `fastvit.yaml`) plus `base.yaml`. Use `configs/probe.yaml` for probe settings (shots, metric, split policy). Run `scripts/print_config.py` to inspect the merged config.
+Pick backbone/objective/encoding via backbone config (`cnn.yaml`, `tstransformer.yaml`, `vit.yaml`, `fastvit.yaml`) plus `base.yaml`. Use `configs/probe.yaml` for probe settings (shots, metric, split policy). Run `scripts/print_config.py` to inspect the merged config.
 
 ### 4) Pretrain (Stage A)
 ```bash
@@ -68,7 +66,3 @@ Evaluates the best head on the frozen encoder, writes `metrics.txt` and `summary
 - `checkpoints/` — `latest.pt`, optional periodic `step_*.pt`.
 - `artifacts/encoder.pt`, `artifacts/encoder_meta.json` — frozen encoder + metadata.
 - `probe/` — probe logs, checkpoints (`latest.pt`, `best.pt`), `metrics.txt`, `summary.txt`.
-
-## Mantra
-“IMU-LM is an evaluation system for representations, not a training framework for task accuracy.”
-# TransfHAR
