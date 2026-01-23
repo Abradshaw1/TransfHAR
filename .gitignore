@@ -1,0 +1,11 @@
+__pycache__/
+*.pt
+*.parquet
+runs/
+datadrive/
+imu_lm_env/
+
+# Editors / notebooks
+.ipynb_checkpoints/
+.vscode/
+.idea/

@@ -1,0 +1,22 @@
+# Base defaults: paths, logging, windowing, loader, optim.
+paths:
+  # data_root: "/path/to/datadrive"
+  # runs_root: "runs"
+logging:
+  # log_every_steps: 50
+  # ckpt_every_steps: 1000
+windowing:
+  # sample_rate_hz: 50
+  # window_secs: 5
+  # stride_secs: 2.5
+loader:
+  # encoding: "raw"  # or "spectrogram"
+  # batch_size: 64
+  # num_workers: 8
+optim:
+  # lr: 3e-4
+  # weight_decay: 0.01
+trainer:
+  # amp: true
+  # max_steps: 100000
+  # seed: 42

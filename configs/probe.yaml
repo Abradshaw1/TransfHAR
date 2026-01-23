@@ -1,0 +1,8 @@
+# Probe protocol defaults: split policy, k-shot grid, epochs, metric.
+probe:
+  # split_policy: "lodo"  # or "within_dataset", "cross_dataset"
+  # shots: [0, 1, 3, 5, 10, 15]
+  # metric: "macro_f1"  # selection metric
+  # epochs: 50
+  # batch_size: 256
+  # lr: 1e-3

@@ -1,0 +1,12 @@
+# TS-Transformer backbone: model/encoding/objective/hparams for runs.
+model: "TSTransformer"
+encoding: "raw"  # expects [B, C, T]
+objective: "mae"
+# hparams:
+#   embed_dim: 256
+#   depth: 6
+#   heads: 8
+#   dropout: 0.1
+# optim:
+#   lr: 3e-4
+#   weight_decay: 0.01

@@ -1,0 +1,14 @@
+# ViT backbone: model/encoding/objective/hparams for runs.
+model: "ViTd"
+encoding: "spectrogram"  # expects [B, C, F, TT]
+objective: "mae"
+# hparams:
+#   embed_dim: 384
+#   depth: 8
+#   heads: 6
+#   patch_time: 8
+#   patch_freq: 4
+#   dropout: 0.1
+# optim:
+#   lr: 3e-4
+#   weight_decay: 0.01
