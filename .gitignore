@@ -3,7 +3,7 @@ __pycache__/
 *.parquet
 runs/
 datadrive/
-imu_lm_env/
+TransfHAR_env/
 
 # Editors / notebooks
 .ipynb_checkpoints/
