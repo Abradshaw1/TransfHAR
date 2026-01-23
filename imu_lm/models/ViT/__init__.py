@@ -1,0 +1,1 @@
+# ViT model package placeholder.

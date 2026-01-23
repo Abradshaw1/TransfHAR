@@ -1,0 +1,1 @@
+# FastViT model package placeholder.
