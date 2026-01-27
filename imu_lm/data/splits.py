@@ -40,13 +40,19 @@ def _cfg_get(cfg: Any, path: Iterable[str], default=None):
     return cur if cur is not None else default
 
 
-def build_session_index(parquet_path: str, cfg: Any) -> pd.DataFrame:
-    """Build a session-level index with streaming aggregation (no full pandas load)."""
+def build_session_index(parquet_path: str, cfg: Any, batch_limit: Optional[int] = None) -> pd.DataFrame:
+    """Build a session-level index with streaming aggregation (no full pandas load).
+
+    ``batch_limit`` can be used by smoke tests to stop after N batches.
+    """
 
     dataset_col = _cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
     subject_col = _cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
     session_col = _cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
     time_col = _cfg_get(cfg, ["data", "loading", "time_column"], None)
+    handle_gaps = bool(_cfg_get(cfg, ["data", "windowing", "handle_gaps"], False))
+    if not handle_gaps:
+        time_col = None
 
     max_gap_ms = float(_cfg_get(cfg, ["data", "windowing", "max_gap_ms"], 200.0))
     gap_ns = int(max_gap_ms * 1e6)
@@ -66,11 +72,18 @@ def build_session_index(parquet_path: str, cfg: Any) -> pd.DataFrame:
     prev_key0: Optional[str] = None
     prev_t0: Optional[int] = None
 
+    batch_count = 0
     for batch in scanner.to_batches():
         d = pc.cast(batch[dataset_col], pa.string())
         s = pc.cast(batch[subject_col], pa.string())
         e = pc.cast(batch[session_col], pa.string())
-        key = pc.binary_join_element_wise([d, s, e], "|")
+        d_np = np.array(d)
+        s_np = np.array(s)
+        e_np = np.array(e)
+        key_np = np.char.add(np.char.add(np.char.add(d_np, "|"), np.char.add(s_np, "|")), e_np)
+        key = pa.array(key_np, type=pa.string())
+
+        batch_count += 1
 
         gb = pa.table({"key": key}).group_by("key").aggregate([("key", "count")])
         keys_b = gb["key"].to_pylist()
@@ -108,6 +121,9 @@ def build_session_index(parquet_path: str, cfg: Any) -> pd.DataFrame:
 
             prev_key0 = key_np[-1]
             prev_t0 = int(t[-1])
+
+        if batch_limit is not None and batch_count >= batch_limit:
+            break
 
     rows = []
     for k, N in n_rows.items():

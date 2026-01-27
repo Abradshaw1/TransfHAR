@@ -16,14 +16,14 @@ trainer:
 
 data:
   loading:
-    dataset_path: "/data/imu_ssl/unified_dataset.parquet"
+    dataset_path: "/home/aidan/TransfHAR/imu_lm/data/data_drive/IMULM_master_dataset.parquet"
     dataset_column: dataset
     subject_column: subject_id
     session_column: session_id
     time_column: timestamp_ns
     label_column: global_activity_id
     unknown_label_id: 9000
-    sensor_columns: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+    sensor_columns: [acc_x, acc_y, acc_z]
     drop_na: false
     num_workers: 8
     pin_memory: true
@@ -43,7 +43,7 @@ data:
     window_hop_ratio: 0.5
 
     # label assignment for a window
-    label_policy: pure            # pure | majority | center | unknown_if_mixed
+    label_policy: center            # pure | majority | center | unknown_if_mixed
     majority_threshold: 0.8       # only used if label_policy=majority
 
     # optional gap-awareness (does NOT change stride; stride uses index)
@@ -56,7 +56,7 @@ data:
     impute:
       enabled: true
       method: linear             # linear | spline
-      max_missing_frac: 0.02
+      max_missing_frac: 0.2
 
     filter:
       enabled: false
