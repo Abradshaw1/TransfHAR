@@ -17,6 +17,8 @@ except Exception as exc:  # pragma: no cover - hard fail
 from imu_lm.data.splits import SessionKey, build_session_index, make_splits
 from imu_lm.data.windowing import compute_T_and_hop, resolve_window_label
 from imu_lm.data.augmentations.preprocess import PreprocessStats, preprocess_window
+from imu_lm.data.augmentations.spectrogram import stft_encode
+from imu_lm.data.augmentations.transform import apply_augment
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +168,19 @@ class WindowDataset(Dataset):
         if Xproc is None:
             return None
 
-        x_tensor = torch.from_numpy(Xproc)
+        # train-only time-domain augmentations (apply_augment expects [T, C])
+        aug_cfg = _cfg_get(self.cfg, ["data", "augment"], {}) or {}
+        if self.split_name == "train" and aug_cfg.get("enabled", False):
+            Xproc = apply_augment(Xproc.T, self.cfg).T
+
+        # optional spectrogram encoding (stft_encode expects [C, T])
+        spec_cfg = aug_cfg.get("spectrogram", {}) or {}
+        if spec_cfg.get("enabled", False):
+            out = stft_encode(torch.from_numpy(Xproc).float(), self.cfg)
+            x_tensor = out[1] if isinstance(out, tuple) else out   # <- take IMG if present
+        else:
+            x_tensor = torch.from_numpy(Xproc).float()
+
         y_tensor = torch.tensor(label, dtype=torch.long)
         return x_tensor, y_tensor
 
