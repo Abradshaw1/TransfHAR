@@ -41,11 +41,9 @@ data:
   windowing:
     window_seconds: 2.56
     window_hop_ratio: 0.5
-
     # label assignment for a window
     label_policy: center            # pure | majority | center | unknown_if_mixed
     majority_threshold: 0.8       # only used if label_policy=majority
-
     # optional gap-awareness (does NOT change stride; stride uses index)
     handle_gaps: true
     gap_method: interpolate       # interpolate | split_segment | drop
@@ -59,7 +57,7 @@ data:
       max_missing_frac: 0.2
 
     filter:
-      enabled: false
+      enabled: true
       type: bandpass             # lowpass | highpass | bandpass
       order: 4
       low_hz: 0.25
@@ -69,3 +67,23 @@ data:
       enabled: true
       method: zscore             # zscore | robust | minmax
       eps: 1e-6
+
+  augment:
+    enabled: true
+    gaussian_noise:
+      enabled: false
+      sigma: 0.6            # std in signal units (e.g., m/s^2)
+
+    gain_jitter:
+      enabled: false
+      min_scale: 1.6
+      max_scale: 5.1
+
+    time_warp:
+      enabled: false
+      max_warp: 0.05         # ±15% temporal distortion
+      smooth_sigma: 1        # smoothness of warp (higher = smoother)
+
+    axis_bias:
+      enabled: true
+      max_bias: 5.8
