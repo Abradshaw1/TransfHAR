@@ -58,10 +58,10 @@ data:
 
     filter:
       enabled: true
-      type: bandpass             # lowpass | highpass | bandpass
+      type: lowpass             # lowpass | highpass | bandpass
       order: 4
-      low_hz: 0.25
-      high_hz: 20.0
+      low_hz: 0.5
+      high_hz: 24.0
 
     normalize:
       enabled: true
@@ -70,6 +70,15 @@ data:
 
   augment:
     enabled: true
+
+    spectrogram:
+      enabled: true
+      n_fft: 64
+      win_length: 64
+      hop_length: 4
+      center: false
+      return_image: true
+
     gaussian_noise:
       enabled: false
       sigma: 0.6            # std in signal units (e.g., m/s^2)
@@ -85,5 +94,5 @@ data:
       smooth_sigma: 1        # smoothness of warp (higher = smoother)
 
     axis_bias:
-      enabled: true
+      enabled: false
       max_bias: 5.8
