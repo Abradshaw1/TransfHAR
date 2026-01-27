@@ -1,18 +1,11 @@
-# Base defaults: paths, logging, windowing, loader, optim.
+# Base defaults: paths, logging, optim, trainer, data.
 paths:
   # data_root: "/path/to/datadrive"
   # runs_root: "runs"
 logging:
   # log_every_steps: 50
   # ckpt_every_steps: 1000
-windowing:
-  # sample_rate_hz: 50
-  # window_secs: 5
-  # stride_secs: 2.5
-loader:
-  # encoding: "raw"  # or "spectrogram"
-  # batch_size: 64
-  # num_workers: 8
+
 optim:
   # lr: 3e-4
   # weight_decay: 0.01
@@ -20,3 +13,59 @@ trainer:
   # amp: true
   # max_steps: 100000
   # seed: 42
+
+data:
+  loading:
+    dataset_path: "/data/imu_ssl/unified_dataset.parquet"
+    dataset_column: dataset
+    subject_column: subject_id
+    session_column: session_id
+    time_column: timestamp_ns
+    label_column: global_activity_id
+    unknown_label_id: 9000
+    sensor_columns: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+    drop_na: false
+    num_workers: 8
+    pin_memory: true
+    batch_size: 256
+    eval_batch_size: 512
+
+  splits:
+    seed: 0
+    probe_dataset: samosa
+    group_key: subject_id         # if missing/null -> fallback to session_id
+    shuffle: true
+    val_ratio: 0.05               # for non-probe training split only
+    probe_ratios: [0.7, 0.1, 0.2] # train/val/test inside probe dataset
+
+  windowing:
+    window_seconds: 2.56
+    window_hop_ratio: 0.5
+
+    # label assignment for a window
+    label_policy: pure            # pure | majority | center | unknown_if_mixed
+    majority_threshold: 0.8       # only used if label_policy=majority
+
+    # optional gap-awareness (does NOT change stride; stride uses index)
+    handle_gaps: true
+    gap_method: interpolate       # interpolate | split_segment | drop
+    max_gap_ms: 200              # only used when handle_gaps=true
+    max_gaps_per_session: 1000000000
+
+  preprocess:
+    impute:
+      enabled: true
+      method: linear             # linear | spline
+      max_missing_frac: 0.02
+
+    filter:
+      enabled: false
+      type: bandpass             # lowpass | highpass | bandpass
+      order: 4
+      low_hz: 0.25
+      high_hz: 20.0
+
+    normalize:
+      enabled: true
+      method: zscore             # zscore | robust | minmax
+      eps: 1e-6
