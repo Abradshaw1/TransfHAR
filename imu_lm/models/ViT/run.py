@@ -35,7 +35,8 @@ def _build_optimizer(model: torch.nn.Module, cfg: Any):
     lr = float(ocfg.get("lr", 1.5e-4))
     wd = float(ocfg.get("weight_decay", 0.05))
     betas = tuple(ocfg.get("betas", [0.9, 0.95]))
-    return AdamW(model.parameters(), lr=lr, weight_decay=wd, betas=betas)
+    eps = float(ocfg.get("eps", 1e-8))
+    return AdamW(model.parameters(), lr=lr, weight_decay=wd, betas=betas, eps=eps)
 
 
 def _build_scheduler(optimizer, cfg: Any):

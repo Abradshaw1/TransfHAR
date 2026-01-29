@@ -1,8 +1,30 @@
-# Probe protocol defaults: split policy, k-shot grid, epochs, metric.
 probe:
-  # split_policy: "lodo"  # or "within_dataset", "cross_dataset"
-  # shots: [0, 1, 3, 5, 10, 15]
-  # metric: "macro_f1"  # selection metric
-  # epochs: 50
-  # batch_size: 256
-  # lr: 1e-3
+  enabled: true
+
+  encoder:
+    artifact_relpath: "artifacts/encoder.pt"
+    meta_relpath: "artifacts/encoder_meta.json"
+
+  labels:
+    column: global_activity_id
+    unknown_id: 9000
+    drop_unknown: true
+    min_count_per_class: 10
+
+  fewshot:
+    enabled: false
+    shots_per_class: 5
+    seed: 0
+
+  train:
+    num_epochs: 50
+    batch_size: 256
+    lr: 0.001
+    weight_decay: 0.0
+    grad_clip_norm: 1.0
+    early_stop_patience: 5
+    amp: true
+    selection_metric: macro_f1
+
+  output:
+    probe_dirname: "probe"

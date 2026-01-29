@@ -1,15 +1,70 @@
-"""
-eval.py
--------
-Evaluation for frozen encoder + trained head.
+"""Evaluation utilities for probe heads."""
 
-Pseudocode:
-- def evaluate(encoder, head, loaders, cfg):
-    - encoder.eval(); head.eval()
-    - iterate over eval loader(s):
-        - forward encoder (no grad), forward head -> logits
-        - collect preds/labels
-    - metrics = imu_lm.utils.metrics.compute_metrics(...)
-    - write metrics.txt + summary.txt under runs/<run>/probe/
-    - return metrics
-"""
+from __future__ import annotations
+
+from typing import Any, Dict, Iterable
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+from imu_lm.utils.metrics import compute_metrics
+
+
+def _remap_labels(y: torch.Tensor, raw_to_idx: Dict[int, int]) -> torch.Tensor:
+    mapped = [raw_to_idx[int(v)] for v in y.tolist() if int(v) in raw_to_idx]
+    if len(mapped) == 0:
+        return torch.empty(0, dtype=torch.long, device=y.device)
+    return torch.tensor(mapped, dtype=torch.long, device=y.device)
+
+
+def eval_head(
+    encoder: torch.nn.Module,
+    head: torch.nn.Module,
+    loader,
+    label_map: Dict[str, Any],
+    device,
+) -> Dict[str, Any]:
+    """Evaluate encoder+head on a loader using stored label mapping."""
+
+    raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
+
+    encoder.eval()
+    head.eval()
+
+    y_true: Iterable[int] = []
+    y_pred: Iterable[int] = []
+    total_loss = 0.0
+    n_samples = 0
+
+    with torch.no_grad():
+        for batch in loader:
+            if batch is None:
+                continue
+            x, y_raw = batch
+            y_raw = y_raw.to(device)
+            idxs = [i for i, v in enumerate(y_raw.tolist()) if int(v) in raw_to_idx]
+            if len(idxs) == 0:
+                continue
+            y = torch.tensor([raw_to_idx[int(y_raw[i])] for i in idxs], dtype=torch.long, device=device)
+
+            x = x.to(device)[idxs]
+            with torch.no_grad():
+                feats = encoder.forward_features(x)
+            logits = head(feats)
+            loss = F.cross_entropy(logits, y)
+
+            preds = logits.argmax(dim=1)
+
+            total_loss += float(loss.item() * y.shape[0])
+            n_samples += y.shape[0]
+            y_true = np.concatenate([np.asarray(y_true), y.cpu().numpy()]) if len(y_true) else y.cpu().numpy()
+            y_pred = np.concatenate([np.asarray(y_pred), preds.cpu().numpy()]) if len(y_pred) else preds.cpu().numpy()
+
+    if n_samples == 0:
+        return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}
+
+    metrics = compute_metrics(y_true, y_pred)
+    acc = float((np.asarray(y_true) == np.asarray(y_pred)).mean())
+    metrics.update({"loss": total_loss / n_samples, "acc": acc})
+    return metrics

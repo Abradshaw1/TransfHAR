@@ -21,13 +21,13 @@ def artifact_paths(run_dir: str) -> Dict[str, str]:
 
 def save_encoder(encoder: torch.nn.Module, meta: Dict[str, Any], run_dir: str):
     paths = artifact_paths(run_dir)
-    torch.save(encoder.state_dict(), paths["encoder"])
+    # Save the full module for robust Stage B loading (no reconstruction needed)
+    torch.save(encoder, paths["encoder"])
     with open(paths["meta"], "w") as f:
         json.dump(meta, f, indent=2)
 
 
-def load_encoder(encoder: torch.nn.Module, run_dir: str, map_location=None):
+def load_encoder(run_dir: str, map_location=None):
     paths = artifact_paths(run_dir)
-    state = torch.load(paths["encoder"], map_location=map_location)
-    encoder.load_state_dict(state)
+    encoder = torch.load(paths["encoder"], map_location=map_location)
     return encoder
