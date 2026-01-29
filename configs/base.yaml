@@ -1,18 +1,13 @@
-# Base defaults: paths, logging, optim, trainer, data.
 paths:
-  # data_root: "/path/to/datadrive"
-  # runs_root: "runs"
+  # data_root: "/path/to/datadrive"  # optional root if using relative dataset paths
+  runs_root: "/home/aidan/TransfHAR/runs"
 logging:
-  # log_every_steps: 50
-  # ckpt_every_steps: 1000
+  log_every_steps: 10
+  ckpt_every_steps: 2000
 
-optim:
-  # lr: 3e-4
-  # weight_decay: 0.01
-trainer:
-  # amp: true
-  # max_steps: 100000
-  # seed: 42
+wandb:
+  project: imu-lm
+  entity: imu-lm
 
 data:
   loading:
@@ -61,7 +56,7 @@ data:
       type: lowpass             # lowpass | highpass | bandpass
       order: 4
       low_hz: 0.5
-      high_hz: 24.0
+      high_hz: 24
 
     normalize:
       enabled: true

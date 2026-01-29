@@ -78,6 +78,15 @@ def _detect_gaps(t: Optional[np.ndarray], max_gap_ms: float) -> np.ndarray:
         return np.array([], dtype=int)
     dt = np.diff(t)
     gap_ns = max_gap_ms * 1e6
+    # heuristic: warn if timestamps look like ms/us (too small diffs for 50Hz)
+    if dt.size > 0:
+        median_dt = np.median(dt)
+        # at 50Hz, expected ~20ms => 20e6 ns; if we see med_dt < 1e5, likely wrong units
+        if median_dt < 1e5:
+            logger.warning(
+                "timestamp deltas look <100us median (%.1f); expected ~20ms in ns; check timestamp units",
+                median_dt,
+            )
     return np.where(dt > gap_ns)[0]
 
 

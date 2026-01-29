@@ -226,7 +226,8 @@ def make_loaders(cfg: Any) -> Dict[str, DataLoader]:
         ds_obj = WindowDataset(parquet_path, session_index, keys, cfg, split_name=name)
         loaders[f"{name}_loader"] = _make_loader(ds_obj, bs, shuffle, num_workers, pin_memory)
 
-    add_loader("train", splits["train_keys"], batch_size, shuffle=True)
+    # Disable shuffle to avoid per-window session cache thrash; revisit with a session-aware sampler
+    add_loader("train", splits["train_keys"], batch_size, shuffle=False)
     add_loader("val", splits["val_keys"], eval_batch_size, shuffle=False)
     add_loader("probe_train", splits["probe_train_keys"], batch_size, shuffle=True)
     add_loader("probe_val", splits["probe_val_keys"], eval_batch_size, shuffle=False)
