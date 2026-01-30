@@ -32,6 +32,7 @@ data:
     shuffle: true
     val_ratio: 0.05               # for non-probe training split only
     probe_ratios: [0.7, 0.1, 0.2] # train/val/test inside probe dataset
+    probe_stratify_by_label: false # if true, enforce label-aware probe splits by group
 
   windowing:
     window_seconds: 2.56

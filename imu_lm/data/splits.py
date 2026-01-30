@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -177,6 +177,8 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
     val_ratio = float(splits_cfg.get("val_ratio", 0.0))
     probe_ratios = splits_cfg.get("probe_ratios", [0.7, 0.1, 0.2])
     seed = int(splits_cfg.get("seed", 0))
+    probe_stratify = bool(splits_cfg.get("probe_stratify_by_label", False))
+    label_col = _cfg_get(cfg, ["data", "loading", "label_column"], "global_activity_id")
 
     rng = np.random.RandomState(seed)
 
@@ -201,12 +203,93 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
 
     # Probe splits
     probe_df = session_index[session_index[dataset_col] == probe_dataset]
-    probe_groups = group_sessions(probe_df)
-    pr_train, pr_val, pr_test = _split_by_ratio(probe_groups, probe_ratios)
 
-    probe_train_df = pd.concat(pr_train, ignore_index=True) if pr_train else pd.DataFrame(columns=session_index.columns)
-    probe_val_df = pd.concat(pr_val, ignore_index=True) if pr_val else pd.DataFrame(columns=session_index.columns)
-    probe_test_df = pd.concat(pr_test, ignore_index=True) if pr_test else pd.DataFrame(columns=session_index.columns)
+    if probe_stratify:
+        if label_col not in probe_df:
+            raise ValueError(f"label_column {label_col} missing; cannot stratify probe splits")
+
+        def group_label_hist(df: pd.DataFrame) -> List[Tuple[pd.DataFrame, Dict[int, int]]]:
+            groups = []
+            by = _group_key(df[group_key] if group_key in df else df[session_col], group_key)
+            for _, g in df.groupby(by):
+                hist = g[label_col].value_counts().to_dict()
+                groups.append((g, hist))
+            if shuffle:
+                rng.shuffle(groups)
+            return groups
+
+        groups = group_label_hist(probe_df)
+
+        # Greedy assignment to cover classes across splits
+        target_counts = [int(round(len(groups) * r)) for r in probe_ratios]
+        # ensure at least 1 group if ratio > 0 and available groups
+        for i, r in enumerate(probe_ratios):
+            if r > 0 and target_counts[i] == 0 and len(groups) > 0:
+                target_counts[i] = 1
+        # normalize if sum drifts
+        while sum(target_counts) > len(groups):
+            target_counts[target_counts.index(max(target_counts))] -= 1
+
+        class_sets = [set(), set(), set()]
+        split_groups: List[List[pd.DataFrame]] = [[], [], []]
+
+        # Sort groups by number of unique labels (desc) to place rich groups first
+        groups_sorted = sorted(groups, key=lambda x: len(x[1]), reverse=True)
+
+        for g_df, hist in groups_sorted:
+            labels = set(hist.keys())
+            # pick split that improves coverage and is under target
+            best_split = None
+            best_gain = -1
+            for i in range(3):
+                if len(split_groups[i]) >= target_counts[i]:
+                    continue
+                gain = len(labels - class_sets[i])
+                if gain > best_gain:
+                    best_gain = gain
+                    best_split = i
+            if best_split is None:
+                # all targets filled; put into smallest split by size
+                sizes = [len(sg) for sg in split_groups]
+                best_split = int(np.argmin(sizes))
+            split_groups[best_split].append(g_df)
+            class_sets[best_split].update(labels)
+
+        pr_train_df = pd.concat(split_groups[0], ignore_index=True) if split_groups[0] else pd.DataFrame(columns=session_index.columns)
+        pr_val_df = pd.concat(split_groups[1], ignore_index=True) if split_groups[1] else pd.DataFrame(columns=session_index.columns)
+        pr_test_df = pd.concat(split_groups[2], ignore_index=True) if split_groups[2] else pd.DataFrame(columns=session_index.columns)
+
+        logger.info(
+            "probe group split (stratified): total_groups=%d train=%d val=%d test=%d ratios=%s",
+            len(groups_sorted),
+            len(split_groups[0]),
+            len(split_groups[1]),
+            len(split_groups[2]),
+            probe_ratios,
+        )
+
+        # Warn if any class missing in a split
+        all_labels = set(probe_df[label_col].unique().tolist())
+        for name, cls_set in zip(["probe_train", "probe_val", "probe_test"], class_sets):
+            missing = all_labels - cls_set
+            if missing:
+                logger.warning("probe stratify: split=%s missing labels=%s", name, sorted(list(missing)))
+    else:
+        probe_groups = group_sessions(probe_df)
+        pr_train, pr_val, pr_test = _split_by_ratio(probe_groups, probe_ratios)
+
+        pr_train_df = pd.concat(pr_train, ignore_index=True) if pr_train else pd.DataFrame(columns=session_index.columns)
+        pr_val_df = pd.concat(pr_val, ignore_index=True) if pr_val else pd.DataFrame(columns=session_index.columns)
+        pr_test_df = pd.concat(pr_test, ignore_index=True) if pr_test else pd.DataFrame(columns=session_index.columns)
+
+        logger.info(
+            "probe group split: total_groups=%d train=%d val=%d test=%d ratios=%s",
+            len(probe_groups),
+            len(pr_train),
+            len(pr_val),
+            len(pr_test),
+            probe_ratios,
+        )
 
     result = {
         "train_keys": _to_session_keys(train_df, dataset_col, subject_col, session_col),
@@ -230,10 +313,27 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
             dict(df[subject_col].value_counts()) if subject_col in df else {},
         )
 
+    def log_labels(name: str, df: pd.DataFrame, topk: int = 10):
+        if df.empty or label_col not in df:
+            logger.info("split=%s label stats unavailable", name)
+            return
+        vc = df[label_col].value_counts()
+        logger.info(
+            "split=%s labels: n_classes=%d top%d=%s",
+            name,
+            vc.size,
+            topk,
+            dict(vc.head(topk)),
+        )
+
     log_split("train", train_df)
     log_split("val", val_df)
     log_split("probe_train", probe_train_df)
     log_split("probe_val", probe_val_df)
     log_split("probe_test", probe_test_df)
+
+    log_labels("probe_train", probe_train_df)
+    log_labels("probe_val", probe_val_df)
+    log_labels("probe_test", probe_test_df)
 
     return result
