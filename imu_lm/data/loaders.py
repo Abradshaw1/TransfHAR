@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -19,26 +19,15 @@ from imu_lm.data.windowing import compute_T_and_hop, resolve_window_label
 from imu_lm.data.augmentations.preprocess import PreprocessStats, preprocess_window
 from imu_lm.data.augmentations.spectrogram import stft_encode
 from imu_lm.data.augmentations.transform import apply_augment
+from imu_lm.utils.helpers import cfg_get
 
 logger = logging.getLogger(__name__)
 
 
-def _cfg_get(cfg: Any, path: Iterable[str], default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
-
-
 def _load_session_df(parquet_path: str, key: SessionKey, cols: List[str], cfg: Any) -> pd.DataFrame:
-    dataset_col = _cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = _cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = _cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
+    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
 
     if ds is None:  # pragma: no cover - enforced above
         raise ImportError("pyarrow is required for dataset loading")
@@ -90,7 +79,7 @@ class WindowDataset(Dataset):
         self.cache = _SessionCache()
         self.stats = PreprocessStats()
 
-        max_gaps_per_session = int(_cfg_get(cfg, ["data", "windowing", "max_gaps_per_session"], 1_000_000_000))
+        max_gaps_per_session = int(cfg_get(cfg, ["data", "windowing", "max_gaps_per_session"], 1_000_000_000))
         gap_counts = {
             SessionKey(r["dataset"], str(r["subject_id"]), str(r["session_id"])): int(r.get("gap_count", 0))
             for _, r in session_index.iterrows()
@@ -119,13 +108,13 @@ class WindowDataset(Dataset):
         if self.cache.key == key and self.cache.X is not None:
             return self.cache.X, self.cache.y, self.cache.t
 
-        dataset_col = _cfg_get(self.cfg, ["data", "loading", "dataset_column"], "dataset")
-        subject_col = _cfg_get(self.cfg, ["data", "loading", "subject_column"], "subject_id")
-        session_col = _cfg_get(self.cfg, ["data", "loading", "session_column"], "session_id")
-        label_col = _cfg_get(self.cfg, ["data", "loading", "label_column"], "global_activity_id")
-        time_col = _cfg_get(self.cfg, ["data", "loading", "time_column"], None)
-        sensor_cols = _cfg_get(self.cfg, ["data", "loading", "sensor_columns"], []) or []
-        drop_na = bool(_cfg_get(self.cfg, ["data", "loading", "drop_na"], False))
+        dataset_col = cfg_get(self.cfg, ["data", "loading", "dataset_column"], "dataset")
+        subject_col = cfg_get(self.cfg, ["data", "loading", "subject_column"], "subject_id")
+        session_col = cfg_get(self.cfg, ["data", "loading", "session_column"], "session_id")
+        label_col = cfg_get(self.cfg, ["data", "loading", "label_column"], "global_activity_id")
+        time_col = cfg_get(self.cfg, ["data", "loading", "time_column"], None)
+        sensor_cols = cfg_get(self.cfg, ["data", "loading", "sensor_columns"], []) or []
+        drop_na = bool(cfg_get(self.cfg, ["data", "loading", "drop_na"], False))
 
         cols = list(sensor_cols) + [label_col]
         if time_col:
@@ -133,6 +122,8 @@ class WindowDataset(Dataset):
         cols.extend([dataset_col, subject_col, session_col])
 
         df = _load_session_df(self.parquet_path, key, cols, self.cfg)
+        if time_col:
+            df = df.sort_values(time_col).reset_index(drop=True)
         if drop_na:
             df = df.dropna(subset=sensor_cols)
 
@@ -155,9 +146,9 @@ class WindowDataset(Dataset):
             return None
 
         # gap gating at fetch time
-        handle_gaps = bool(_cfg_get(self.cfg, ["data", "windowing", "handle_gaps"], False))
-        gap_method = _cfg_get(self.cfg, ["data", "windowing", "gap_method"], "interpolate")
-        max_gap_ms = float(_cfg_get(self.cfg, ["data", "windowing", "max_gap_ms"], 200.0))
+        handle_gaps = bool(cfg_get(self.cfg, ["data", "windowing", "handle_gaps"], False))
+        gap_method = cfg_get(self.cfg, ["data", "windowing", "gap_method"], "interpolate")
+        max_gap_ms = float(cfg_get(self.cfg, ["data", "windowing", "max_gap_ms"], 200.0))
         if handle_gaps and t is not None:
             dt = np.diff(t[start : start + T])
             if np.any(dt > max_gap_ms * 1e6):
@@ -169,15 +160,16 @@ class WindowDataset(Dataset):
             return None
 
         # train-only time-domain augmentations (apply_augment expects [T, C])
-        aug_cfg = _cfg_get(self.cfg, ["data", "augment"], {}) or {}
+        aug_cfg = cfg_get(self.cfg, ["data", "augment"], {}) or {}
         if self.split_name == "train" and aug_cfg.get("enabled", False):
             Xproc = apply_augment(Xproc.T, self.cfg).T
 
-        # optional spectrogram encoding (stft_encode expects [C, T])
         spec_cfg = aug_cfg.get("spectrogram", {}) or {}
         if spec_cfg.get("enabled", False):
             out = stft_encode(torch.from_numpy(Xproc).float(), self.cfg)
-            x_tensor = out[1] if isinstance(out, tuple) else out   # <- take IMG if present
+            x_tensor = out[1] if isinstance(out, tuple) else out
+            if x_tensor.dim() != 3:
+                return None
         else:
             x_tensor = torch.from_numpy(Xproc).float()
 
@@ -211,11 +203,11 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
     dataset_filter: optional list of dataset names to restrict session scan.
     """
 
-    parquet_path = _cfg_get(cfg, ["data", "loading", "dataset_path"])
-    batch_size = int(_cfg_get(cfg, ["data", "loading", "batch_size"], 256))
-    eval_batch_size = int(_cfg_get(cfg, ["data", "loading", "eval_batch_size"], batch_size))
-    num_workers = int(_cfg_get(cfg, ["data", "loading", "num_workers"], 0))
-    pin_memory = bool(_cfg_get(cfg, ["data", "loading", "pin_memory"], False))
+    parquet_path = cfg_get(cfg, ["data", "loading", "dataset_path"])
+    batch_size = int(cfg_get(cfg, ["data", "loading", "batch_size"], 256))
+    eval_batch_size = int(cfg_get(cfg, ["data", "loading", "eval_batch_size"], batch_size))
+    num_workers = int(cfg_get(cfg, ["data", "loading", "num_workers"], 0))
+    pin_memory = bool(cfg_get(cfg, ["data", "loading", "pin_memory"], False))
 
     logger.info("build_session_index: start path=%s", parquet_path)
     if dataset_filter:

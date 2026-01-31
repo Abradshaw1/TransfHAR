@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 def ensure_mae_pretrain_head(model, cfg: Any):
     """Build and attach the MAE pretraining head once (canonical path)."""
-
     if hasattr(model, "mae_model"):
         return
 

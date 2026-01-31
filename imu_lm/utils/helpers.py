@@ -1,17 +1,26 @@
 from __future__ import annotations
 
-"""Misc helpers.
+"""Misc helpers."""
 
-Includes generic utilities and model-specific helpers (see section banners).
-"""
-
-from typing import Tuple
+from typing import Any, Iterable, Tuple
 
 import torch
 import torch.nn.functional as F
 
 
-# ############ ViT helpers ############
+def cfg_get(cfg: Any, path: Iterable[str], default=None):
+    """Navigate nested config (dict or object) by path."""
+    cur = cfg
+    for key in path:
+        if cur is None:
+            return default
+        if isinstance(cur, dict):
+            cur = cur.get(key, default)
+        else:
+            cur = getattr(cur, key, default)
+    return cur if cur is not None else default
+
+
 def resize_bilinear(x: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
     """Resize BCHW float tensor to `size` using bilinear interpolation."""
 

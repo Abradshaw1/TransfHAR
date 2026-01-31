@@ -6,31 +6,20 @@ import os
 import time
 from typing import Any, Callable, Dict, Optional
 
+import numpy as np
+import random
 import torch
 from torch.cuda.amp import GradScaler, autocast
 
+from imu_lm.utils.helpers import cfg_get
+
 
 def _set_seed(seed: int):
-    import random
-    import numpy as np
-
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-
-
-def _cfg_get(cfg: Any, path, default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
 
 
 class Trainer:
@@ -39,7 +28,7 @@ class Trainer:
         self.run_dir = run_dir
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        seed = int(_cfg_get(cfg, ["trainer", "seed"], 42))
+        seed = int(cfg_get(cfg, ["trainer", "seed"], 42))
         _set_seed(seed)
 
         os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
@@ -48,10 +37,10 @@ class Trainer:
         self.metrics_path = os.path.join(run_dir, "logs", "metrics.txt")
         self.ckpt_latest = os.path.join(run_dir, "checkpoints", "latest.pt")
 
-        self.log_every = int(_cfg_get(cfg, ["logging", "log_every_steps"], 100))
-        self.ckpt_every = int(_cfg_get(cfg, ["logging", "ckpt_every_steps"], 1000))
-        self.max_steps = int(_cfg_get(cfg, ["trainer", "max_steps"], 100000))
-        self.use_amp = bool(_cfg_get(cfg, ["trainer", "amp"], False))
+        self.log_every = int(cfg_get(cfg, ["logging", "log_every_steps"], 100))
+        self.ckpt_every = int(cfg_get(cfg, ["logging", "ckpt_every_steps"], 1000))
+        self.max_steps = int(cfg_get(cfg, ["trainer", "max_steps"], 100000))
+        self.use_amp = bool(cfg_get(cfg, ["trainer", "amp"], False))
 
     def fit(
         self,

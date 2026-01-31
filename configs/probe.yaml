@@ -1,13 +1,9 @@
 probe:
-  enabled: true
-
   encoder:
     artifact_relpath: "artifacts/encoder.pt"
     meta_relpath: "artifacts/encoder_meta.json"
 
   labels:
-    column: global_activity_id
-    unknown_id: 9000
     drop_unknown: false
     min_count_per_class: 0
 

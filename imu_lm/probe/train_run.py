@@ -13,7 +13,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Subset
 
 from imu_lm.data.loaders import make_loaders
@@ -21,19 +21,8 @@ from imu_lm.probe.eval import eval_head
 from imu_lm.probe.head import LinearHead
 from imu_lm.probe.io import load_checkpoint, resolve_probe_dir, save_checkpoint, write_metrics_line, write_summary
 from imu_lm.runtime_consistency import artifacts
+from imu_lm.utils.helpers import cfg_get
 from imu_lm.utils.metrics import compute_metrics, format_metrics_txt
-
-
-def _cfg_get(cfg: Any, path, default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
 
 
 def _load_encoder_meta(run_dir: str) -> Dict[str, Any]:
@@ -129,7 +118,7 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
 
         x = torch.index_select(x.to(device), 0, torch.tensor(idxs, device=device))
         optimizer.zero_grad(set_to_none=True)
-        with autocast(enabled=use_amp):
+        with autocast("cuda", enabled=use_amp):
             with torch.no_grad():
                 feats = encoder.forward_features(x)
             logits = head(feats)
@@ -149,8 +138,16 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
         y_pred.extend(preds.cpu().tolist())
 
         if log_every_steps and batch_idx % log_every_steps == 0:
-            batch_acc = float((preds == y).float().mean().item()) if y.numel() > 0 else 0.0
-            logger.info("[probe] step=%d loss=%.6f acc=%.4f", batch_idx, loss.detach().item(), batch_acc)
+            step_metrics = compute_metrics(y.cpu().tolist(), preds.cpu().tolist()) if y.numel() > 0 else {}
+            batch_bal_acc = step_metrics.get("bal_acc", 0.0)
+            batch_macro_f1 = step_metrics.get("macro_f1", 0.0)
+            logger.info(
+                "[probe] step=%d loss=%.6f bal_acc=%.4f macro_f1=%.4f",
+                batch_idx,
+                loss.detach().item(),
+                batch_bal_acc,
+                batch_macro_f1,
+            )
 
     if n_samples == 0:
         return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}
@@ -203,8 +200,7 @@ def main(cfg: Any, run_dir: str):
 
     probe_dataset = cfg.get("data", {}).get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
     logger.info("[probe] building probe loaders (probe_dataset=%s)", probe_dataset)
-    dataset_filter = [probe_dataset] if probe_dataset else None
-    loaders = make_loaders(cfg, dataset_filter=dataset_filter)
+    loaders = make_loaders(cfg, dataset_filter=[probe_dataset] if probe_dataset else None)
     train_loader = loaders.get("probe_train_loader")
     val_loader = loaders.get("probe_val_loader") if loaders else None
     test_loader = loaders.get("probe_test_loader") if loaders else None
@@ -275,8 +271,7 @@ def main(cfg: Any, run_dir: str):
     selection_metric = train_cfg.get("selection_metric", "macro_f1")
     patience = int(train_cfg.get("early_stop_patience", 5))
     log_every_steps = int(train_cfg.get("log_every_steps", train_cfg.get("log_every_batches", 1))) or 1
-
-    scaler = GradScaler(enabled=use_amp)
+    scaler = GradScaler("cuda", enabled=use_amp)
 
     best_metric = -1e9
     best_epoch = -1

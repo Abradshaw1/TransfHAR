@@ -48,7 +48,7 @@ def eval_head(
                 continue
             y = torch.tensor([raw_to_idx[int(y_raw[i])] for i in idxs], dtype=torch.long, device=device)
 
-            x = x.to(device)[idxs]
+            x = torch.index_select(x.to(device), 0, torch.tensor(idxs, device=device))
             with torch.no_grad():
                 feats = encoder.forward_features(x)
             logits = head(feats)

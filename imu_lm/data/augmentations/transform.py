@@ -7,21 +7,11 @@ representation-agnostic.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 
-
-def _cfg_get(cfg: Any, path: Iterable[str], default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
+from imu_lm.utils.helpers import cfg_get
 
 
 def add_gaussian_noise(x: np.ndarray, sigma: float) -> np.ndarray:
@@ -87,7 +77,7 @@ def smooth_time_warp(x: np.ndarray, max_warp: float, sigma: int) -> np.ndarray:
 def apply_augment(x: np.ndarray, cfg: Any) -> np.ndarray:
     """Apply configured augmentations to a raw window [T, C]."""
 
-    aug = _cfg_get(cfg, ["data", "augment"], {}) or {}
+    aug = cfg_get(cfg, ["data", "augment"], {}) or {}
     if not aug.get("enabled", False):
         return x
 

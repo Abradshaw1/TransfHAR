@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 import numpy as np
+
+from imu_lm.utils.helpers import cfg_get
 
 logger = logging.getLogger(__name__)
 
@@ -26,24 +28,12 @@ class PreprocessStats:
     windows_normalized: int = 0
 
 
-def _cfg_get(cfg: Any, path: Iterable[str], default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
-
-
 def impute_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = None) -> Optional[np.ndarray]:
-    if not bool(_cfg_get(cfg, ["data", "preprocess", "impute", "enabled"], False)):
+    if not bool(cfg_get(cfg, ["data", "preprocess", "impute", "enabled"], False)):
         return Xw
 
-    method = _cfg_get(cfg, ["data", "preprocess", "impute", "method"], "linear")
-    max_missing = float(_cfg_get(cfg, ["data", "preprocess", "impute", "max_missing_frac"], 0.0))
+    method = cfg_get(cfg, ["data", "preprocess", "impute", "method"], "linear")
+    max_missing = float(cfg_get(cfg, ["data", "preprocess", "impute", "max_missing_frac"], 0.0))
 
     missing_mask = np.isnan(Xw)
     missing_frac = missing_mask.mean() if Xw.size else 0.0
@@ -80,7 +70,7 @@ def impute_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = N
 
 
 def filter_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = None) -> np.ndarray:
-    filt_cfg = _cfg_get(cfg, ["data", "preprocess", "filter"], {}) or {}
+    filt_cfg = cfg_get(cfg, ["data", "preprocess", "filter"], {}) or {}
     if not filt_cfg.get("enabled", False):
         return Xw
 
@@ -115,7 +105,7 @@ def filter_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = N
 
 
 def normalize_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = None) -> np.ndarray:
-    norm_cfg = _cfg_get(cfg, ["data", "preprocess", "normalize"], {}) or {}
+    norm_cfg = cfg_get(cfg, ["data", "preprocess", "normalize"], {}) or {}
     if not norm_cfg.get("enabled", False):
         return Xw
 

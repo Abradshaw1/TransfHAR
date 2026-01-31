@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-from io import BytesIO
-from typing import Any, Iterable, Tuple
+from typing import Any, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-
-def _cfg_get(cfg: Any, path: Iterable[str], default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
+from imu_lm.utils.helpers import cfg_get
 
 def _spec_to_img(spec: torch.Tensor) -> torch.Tensor:
     """[C,F,TT] -> [3,F,TT] float32 in [0,1] (acc_x/y/z -> R/G/B)."""
@@ -50,7 +38,7 @@ def stft_encode(x_ct: torch.Tensor, cfg: Any) -> Tuple[torch.Tensor, torch.Tenso
     if x_ct.dim() != 2:
         raise ValueError(f"Expected x_ct of shape [C, T], got {x_ct.shape}")
 
-    scfg = _cfg_get(cfg, ["data", "augment", "spectrogram"], {}) or {}
+    scfg = cfg_get(cfg, ["data", "augment", "spectrogram"], {}) or {}
     n_fft = int(scfg.get("n_fft", 64))
     win_length = int(scfg.get("win_length", n_fft))
     hop_length = int(scfg.get("hop_length", max(1, win_length // 4)))

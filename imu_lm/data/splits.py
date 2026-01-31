@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,8 @@ try:  # required dependency for parquet IO
 except Exception as exc:  # pragma: no cover - hard fail
     raise ImportError("pyarrow is required for dataset loading") from exc
 
+
+from imu_lm.utils.helpers import cfg_get
 
 logger = logging.getLogger(__name__)
 
@@ -28,18 +30,6 @@ class SessionKey:
         return (self.dataset, self.subject_id, self.session_id)
 
 
-def _cfg_get(cfg: Any, path: Iterable[str], default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
-
-
 def build_session_index(
     parquet_path: str,
     cfg: Any,
@@ -52,20 +42,23 @@ def build_session_index(
     ``dataset_filter`` restricts scan to these dataset names if provided.
     """
 
-    dataset_col = _cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = _cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = _cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
-    time_col = _cfg_get(cfg, ["data", "loading", "time_column"], None)
-    handle_gaps = bool(_cfg_get(cfg, ["data", "windowing", "handle_gaps"], False))
+    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
+    time_col = cfg_get(cfg, ["data", "loading", "time_column"], None)
+    label_col = cfg_get(cfg, ["data", "loading", "label_column"], None)
+    handle_gaps = bool(cfg_get(cfg, ["data", "windowing", "handle_gaps"], False))
     if not handle_gaps:
         time_col = None
 
-    max_gap_ms = float(_cfg_get(cfg, ["data", "windowing", "max_gap_ms"], 200.0))
+    max_gap_ms = float(cfg_get(cfg, ["data", "windowing", "max_gap_ms"], 200.0))
     gap_ns = int(max_gap_ms * 1e6)
 
     cols = [dataset_col, subject_col, session_col]
     if time_col:
         cols.append(time_col)
+    if label_col:
+        cols.append(label_col)
 
     dset = ds.dataset(parquet_path, format="parquet")
     filt = None
@@ -77,6 +70,7 @@ def build_session_index(
     t_min: Dict[str, int] = {}
     t_max: Dict[str, int] = {}
     gap_count: Dict[str, int] = {}
+    label_mode: Dict[str, Any] = {}
 
     prev_key0: Optional[str] = None
     prev_t0: Optional[int] = None
@@ -100,13 +94,23 @@ def build_session_index(
         key_np = np.char.add(np.char.add(np.char.add(d_np, "|"), np.char.add(s_np, "|")), e_np)
         key = pa.array(key_np, type=pa.string())
 
-        batch_count += 1
-
         gb = pa.table({"key": key}).group_by("key").aggregate([("key", "count")])
         keys_b = gb["key"].to_pylist()
         cnts_b = gb["key_count"].to_numpy()
         for k, c in zip(keys_b, cnts_b):
             n_rows[k] = n_rows.get(k, 0) + int(c)
+
+        if label_col and label_col in batch.schema.names:
+            lbl = batch[label_col].to_numpy(zero_copy_only=False)
+            key_arr = np.array(key.to_pylist(), dtype=object)
+            for k in np.unique(key_arr):
+                mask = key_arr == k
+                lbls = lbl[mask]
+                vals, cnts = np.unique(lbls, return_counts=True)
+                if k not in label_mode:
+                    label_mode[k] = {}
+                for v, c in zip(vals, cnts):
+                    label_mode[k][v] = label_mode[k].get(v, 0) + int(c)
 
         if time_col:
             t = pc.cast(batch[time_col], pa.int64()).to_numpy(zero_copy_only=False)
@@ -158,6 +162,9 @@ def build_session_index(
         if time_col:
             rec["t_min"] = int(t_min.get(k, 0))
             rec["t_max"] = int(t_max.get(k, 0))
+        if label_col and k in label_mode:
+            mode_label = max(label_mode[k], key=label_mode[k].get)
+            rec[label_col] = mode_label
         rows.append(rec)
 
     return pd.DataFrame.from_records(rows)
@@ -186,10 +193,10 @@ def _split_by_ratio(groups: List[np.ndarray], ratios: List[float]) -> List[List[
 def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[SessionKey]]:
     """Create deterministic splits according to cfg.data.splits."""
 
-    splits_cfg = _cfg_get(cfg, ["data", "splits"], {}) or {}
-    dataset_col = _cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = _cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = _cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
+    splits_cfg = cfg_get(cfg, ["data", "splits"], {}) or {}
+    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
 
     probe_dataset = splits_cfg.get("probe_dataset")
     group_key = splits_cfg.get("group_key") or session_col
@@ -198,7 +205,7 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
     probe_ratios = splits_cfg.get("probe_ratios", [0.7, 0.1, 0.2])
     seed = int(splits_cfg.get("seed", 0))
     probe_stratify = bool(splits_cfg.get("probe_stratify_by_label", False))
-    label_col = _cfg_get(cfg, ["data", "loading", "label_column"], "global_activity_id")
+    label_col = cfg_get(cfg, ["data", "loading", "label_column"], "global_activity_id")
 
     rng = np.random.RandomState(seed)
 

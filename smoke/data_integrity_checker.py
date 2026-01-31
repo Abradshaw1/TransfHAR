@@ -15,25 +15,13 @@ except Exception as exc:
 
 from imu_lm.data.splits import SessionKey, build_session_index
 from imu_lm.data.loaders import WindowDataset
+from imu_lm.utils.helpers import cfg_get
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
-# Optionally define expected datasets for coverage checking. Set to None to use datasets seen in a quick discovery scan.
 EXPECTED_DATASETS: Optional[List[str]] = ["samosa", "opportunity++", "pamap2"]
-
-
-def _cfg_get(cfg: Any, path, default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
 
 
 def load_cfg(path: str) -> Any:
@@ -54,9 +42,9 @@ def _discover_datasets(parquet_path: str, dataset_col: str, limit_batches: int =
 
 
 def _scan_sessions_for_dataset(parquet_path: str, cfg: Any, dataset_name: str, max_batches: int = 20) -> pd.DataFrame:
-    dataset_col = _cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = _cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = _cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
+    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
 
     columns = [dataset_col, subject_col, session_col]
     dataset = ds.dataset(parquet_path, format="parquet")
@@ -83,9 +71,9 @@ def main(cfg_path: str) -> int:
         logger.error("data.loading.dataset_path not set in config")
         return 1
 
-    dataset_col = _cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = _cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = _cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
+    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
 
     # Get dataset list from expectation or a quick discovery scan.
     datasets = EXPECTED_DATASETS if EXPECTED_DATASETS is not None else _discover_datasets(parquet_path, dataset_col, limit_batches=5)

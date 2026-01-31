@@ -15,24 +15,13 @@ from imu_lm.models.ViT.model import ViTEncoder
 from imu_lm.objectives import mae as mae_obj
 from imu_lm.runtime_consistency.artifacts import save_encoder
 from imu_lm.runtime_consistency.trainer import Trainer
-
-
-def _cfg_get(cfg: Any, path, default=None):
-    cur = cfg
-    for key in path:
-        if cur is None:
-            return default
-        if isinstance(cur, dict):
-            cur = cur.get(key, default)
-        else:
-            cur = getattr(cur, key, default)
-    return cur if cur is not None else default
+from imu_lm.utils.helpers import cfg_get
 
 
 def _build_optimizer(model: torch.nn.Module, cfg: Any):
-    ocfg = _cfg_get(cfg, ["trainer", "optim"], None)
+    ocfg = cfg_get(cfg, ["trainer", "optim"], None)
     if ocfg is None:
-        ocfg = _cfg_get(cfg, ["optim"], {}) or {}
+        ocfg = cfg_get(cfg, ["optim"], {}) or {}
     lr = float(ocfg.get("lr", 1.5e-4))
     wd = float(ocfg.get("weight_decay", 0.05))
     betas = tuple(ocfg.get("betas", [0.9, 0.95]))
@@ -41,12 +30,12 @@ def _build_optimizer(model: torch.nn.Module, cfg: Any):
 
 
 def _build_scheduler(optimizer, cfg: Any):
-    scfg = _cfg_get(cfg, ["trainer", "sched"], None)
+    scfg = cfg_get(cfg, ["trainer", "sched"], None)
     if scfg is None:
-        scfg = _cfg_get(cfg, ["sched"], {}) or {}
+        scfg = cfg_get(cfg, ["sched"], {}) or {}
     name = scfg.get("name", "cosine")
     warmup_steps = int(scfg.get("warmup_steps", 0))
-    max_steps = int(_cfg_get(cfg, ["trainer", "max_steps"], 100000))
+    max_steps = int(cfg_get(cfg, ["trainer", "max_steps"], 100000))
 
     if name != "cosine":
         return None
@@ -61,7 +50,7 @@ def _build_scheduler(optimizer, cfg: Any):
 
 
 def _select_objective(cfg: Any):
-    name = _cfg_get(cfg, ["objective", "name"], "mae")
+    name = cfg_get(cfg, ["objective", "name"], "mae")
     if name == "mae":
         return mae_obj.forward_loss
     if name == "frozen_baseline":
@@ -93,7 +82,7 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     val_loader = loaders.get("val_loader")
 
     model = ViTEncoder(cfg)
-    if _cfg_get(cfg, ["objective", "name"], "mae") == "mae":
+    if cfg_get(cfg, ["objective", "name"], "mae") == "mae":
         # Build MAE pretraining head here so optimizer sees decoder/mask token params
         mae_obj.ensure_mae_pretrain_head(model, cfg)
     objective_fn = _select_objective(cfg)
@@ -124,7 +113,7 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     meta = {
         "embedding_dim": model.embed_dim,
         "encoding": "spectrogram_image",
-        "objective": _cfg_get(cfg, ["objective", "name"], "mae"),
+        "objective": cfg_get(cfg, ["objective", "name"], "mae"),
         "backbone": model.backbone_name,
         "input_spec": {
             "channels": model.num_channels,
@@ -132,7 +121,7 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
             "width": model.resize_hw[1],
             "patch_size": model.patch_size,
         },
-        "normalization": _cfg_get(cfg, ["data", "preprocess", "normalize", "method"], None),
+        "normalization": cfg_get(cfg, ["data", "preprocess", "normalize", "method"], None),
     }
     save_encoder(model, meta, run_dir)
 
