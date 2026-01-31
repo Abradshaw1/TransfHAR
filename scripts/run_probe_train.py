@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import logging
 from typing import Any, Dict
 
 import yaml
@@ -37,6 +38,7 @@ def _log_resolved(cfg: Dict[str, Any], run_dir: str):
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Base config YAML")
     ap.add_argument("--probe-config", required=True, help="Probe config YAML")

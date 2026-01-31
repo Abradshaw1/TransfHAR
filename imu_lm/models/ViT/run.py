@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict
+import os
+from typing import Any, Dict, Optional
 
 import torch
 from torch.optim import AdamW
@@ -75,7 +76,18 @@ def _select_objective(cfg: Any):
     raise ValueError(f"Unsupported objective {name}")
 
 
-def main(cfg: Any, run_dir: str):
+def _resolve_resume_path(run_dir: str, resume: Optional[str]) -> Optional[str]:
+    if not resume:
+        return None
+    if resume in {"latest", "best"}:
+        candidate = os.path.join(run_dir, "checkpoints", f"{resume}.pt")
+        return candidate
+    if os.path.isabs(resume):
+        return resume
+    return os.path.join(run_dir, resume)
+
+
+def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     loaders = make_loaders(cfg)
     train_loader = loaders.get("train_loader")
     val_loader = loaders.get("val_loader")
@@ -88,8 +100,26 @@ def main(cfg: Any, run_dir: str):
     optimizer = _build_optimizer(model, cfg)
     scheduler = _build_scheduler(optimizer, cfg)
 
+    start_step = 0
+    resume_path = _resolve_resume_path(run_dir, resume_ckpt)
+    if resume_path and os.path.exists(resume_path):
+        state = torch.load(resume_path, map_location="cpu")
+        if "model" in state:
+            model.load_state_dict(state["model"], strict=False)
+        if optimizer is not None and state.get("optimizer"):
+            try:
+                optimizer.load_state_dict(state["optimizer"])
+            except Exception:
+                pass
+        if scheduler is not None and state.get("scheduler"):
+            try:
+                scheduler.load_state_dict(state["scheduler"])
+            except Exception:
+                pass
+        start_step = int(state.get("step", 0))
+
     trainer = Trainer(cfg, run_dir)
-    trainer.fit(model, objective_fn, train_loader, val_loader, optimizer, scheduler)
+    trainer.fit(model, objective_fn, train_loader, val_loader, optimizer, scheduler, start_step=start_step)
 
     meta = {
         "embedding_dim": model.embed_dim,

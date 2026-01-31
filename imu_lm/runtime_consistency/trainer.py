@@ -61,13 +61,14 @@ class Trainer:
         val_loader=None,
         optimizer: Optional[torch.optim.Optimizer] = None,
         scheduler=None,
+        start_step: int = 0,
     ):
         if optimizer is None:
             raise ValueError("Trainer.fit requires an optimizer; got None")
         model.to(self.device)
         scaler = GradScaler(enabled=self.use_amp)
 
-        step = 0
+        step = int(start_step)
         metrics_f = open(self.metrics_path, "a", buffering=1)
 
         while step < self.max_steps:
@@ -107,6 +108,7 @@ class Trainer:
 
             # Simple val pass per epoch
             if val_loader is not None:
+                print(f"[train] eval at step {step}")
                 self._eval(val_loader, model, objective_step, step, metrics_f)
 
         metrics_f.close()
@@ -156,6 +158,7 @@ class Trainer:
             "cfg": self.cfg,
         }
         torch.save(state, self.ckpt_latest)
+        print(f"[train] saved checkpoint {self.ckpt_latest} (step={step})")
 
     def _to_device(self, batch):
         if isinstance(batch, (list, tuple)):

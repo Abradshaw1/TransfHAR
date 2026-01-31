@@ -14,7 +14,7 @@ from typing import Any, Tuple
 
 import torch
 import torch.nn as nn
-from transformers import ViTMAEConfig, ViTMAEModel
+from transformers import ViTMAEConfig, ViTMAEForPreTraining
 
 from imu_lm.utils.helpers import resize_bilinear
 
@@ -33,7 +33,7 @@ class ViTEncoder(nn.Module):
         num_channels = int(input_cfg.get("num_channels", 3))
 
         if warm_start:
-            self.backbone = ViTMAEModel.from_pretrained(pretrained_id)
+            mae_full = ViTMAEForPreTraining.from_pretrained(pretrained_id)
         else:
             arch = vit_cfg.get("arch", {}) or {}
             if resize_hw[0] != resize_hw[1]:
@@ -53,7 +53,10 @@ class ViTEncoder(nn.Module):
                 layer_norm_eps=float(arch.get("layer_norm_eps", 1e-12)),
                 initializer_range=float(arch.get("initializer_range", 0.02)),
             )
-            self.backbone = ViTMAEModel(hf_cfg)
+            mae_full = ViTMAEForPreTraining(hf_cfg)
+
+        self.backbone = mae_full.vit
+        self.mae_model = mae_full
 
         self.resize_hw: Tuple[int, int] = (int(resize_hw[0]), int(resize_hw[1]))
         self.patch_size = patch_size

@@ -205,8 +205,11 @@ def _make_loader(dataset: WindowDataset, batch_size: int, shuffle: bool, num_wor
     )
 
 
-def make_loaders(cfg: Any) -> Dict[str, DataLoader]:
-    """Construct DataLoaders for train/val/probe splits."""
+def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
+    """Construct DataLoaders for train/val/probe splits.
+
+    dataset_filter: optional list of dataset names to restrict session scan.
+    """
 
     parquet_path = _cfg_get(cfg, ["data", "loading", "dataset_path"])
     batch_size = int(_cfg_get(cfg, ["data", "loading", "batch_size"], 256))
@@ -214,8 +217,26 @@ def make_loaders(cfg: Any) -> Dict[str, DataLoader]:
     num_workers = int(_cfg_get(cfg, ["data", "loading", "num_workers"], 0))
     pin_memory = bool(_cfg_get(cfg, ["data", "loading", "pin_memory"], False))
 
-    session_index = build_session_index(parquet_path, cfg)
+    logger.info("build_session_index: start path=%s", parquet_path)
+    if dataset_filter:
+        logger.info("build_session_index: dataset_filter=%s", dataset_filter)
+    session_index = build_session_index(parquet_path, cfg, dataset_filter=dataset_filter)
+    logger.info("build_session_index: done sessions=%d", len(session_index))
     splits = make_splits(session_index, cfg)
+
+    logger.info(
+        "splits sessions: train=%d val=%d probe_train=%d probe_val=%d probe_test=%d",
+        len(splits.get("train_keys", [])),
+        len(splits.get("val_keys", [])),
+        len(splits.get("probe_train_keys", [])),
+        len(splits.get("probe_val_keys", [])),
+        len(splits.get("probe_test_keys", [])),
+    )
+    logger.info(
+        "loader batch_sizes: train=%d eval=%d (probe_train uses train batch_size)",
+        batch_size,
+        eval_batch_size,
+    )
 
     loaders: Dict[str, DataLoader] = {}
 

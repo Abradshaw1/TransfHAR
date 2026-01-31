@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import time
+import logging
 from typing import Any, Dict
 
 import yaml
@@ -53,10 +54,12 @@ def _log_resolved(cfg: Dict[str, Any], run_dir: str):
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Base config YAML")
     ap.add_argument("--model-config", required=True, help="Model config YAML")
     ap.add_argument("--run-name", default=None)
+    ap.add_argument("--resume", default=None, help="Checkpoint path or name (latest/best) to resume from")
     args = ap.parse_args()
 
     base_cfg = _load_yaml(args.config)
@@ -68,7 +71,7 @@ def main():
 
     model_name = cfg.get("model", {}).get("name", "")
     if model_name == "vit":
-        vit_run.main(cfg, run_dir)
+        vit_run.main(cfg, run_dir, resume_ckpt=args.resume)
     else:
         raise ValueError(f"Unsupported model.name={model_name}")
 

@@ -41,7 +41,7 @@ vit:
 trainer:
   seed: 42
   amp: true
-  max_steps: 100000
+  max_steps: 0
   grad_clip_norm: 1.0
   grad_accum_steps: 1
 

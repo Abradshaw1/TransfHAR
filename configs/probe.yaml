@@ -8,8 +8,8 @@ probe:
   labels:
     column: global_activity_id
     unknown_id: 9000
-    drop_unknown: true
-    min_count_per_class: 10
+    drop_unknown: false
+    min_count_per_class: 0
 
   fewshot:
     enabled: false
@@ -17,14 +17,15 @@ probe:
     seed: 0
 
   train:
-    num_epochs: 50
+    num_epochs: 100
     batch_size: 256
-    lr: 0.001
+    lr: 0.0001
     weight_decay: 0.0
     grad_clip_norm: 1.0
-    early_stop_patience: 5
+    early_stop_patience: 20
     amp: true
     selection_metric: macro_f1
+    log_every_batches: 5
 
   output:
     probe_dirname: "probe"

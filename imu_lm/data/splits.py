@@ -40,10 +40,16 @@ def _cfg_get(cfg: Any, path: Iterable[str], default=None):
     return cur if cur is not None else default
 
 
-def build_session_index(parquet_path: str, cfg: Any, batch_limit: Optional[int] = None) -> pd.DataFrame:
+def build_session_index(
+    parquet_path: str,
+    cfg: Any,
+    batch_limit: Optional[int] = None,
+    dataset_filter: Optional[List[str]] = None,
+) -> pd.DataFrame:
     """Build a session-level index with streaming aggregation (no full pandas load).
 
     ``batch_limit`` can be used by smoke tests to stop after N batches.
+    ``dataset_filter`` restricts scan to these dataset names if provided.
     """
 
     dataset_col = _cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
@@ -62,7 +68,10 @@ def build_session_index(parquet_path: str, cfg: Any, batch_limit: Optional[int] 
         cols.append(time_col)
 
     dset = ds.dataset(parquet_path, format="parquet")
-    scanner = dset.scanner(columns=cols, batch_size=1_000_000)
+    filt = None
+    if dataset_filter:
+        filt = ds.field(dataset_col).isin(dataset_filter)
+    scanner = dset.scanner(columns=cols, batch_size=1_000_000, filter=filt)
 
     n_rows: Dict[str, int] = {}
     t_min: Dict[str, int] = {}
@@ -73,7 +82,15 @@ def build_session_index(parquet_path: str, cfg: Any, batch_limit: Optional[int] 
     prev_t0: Optional[int] = None
 
     batch_count = 0
+    total_rows = 0
     for batch in scanner.to_batches():
+        batch_count += 1
+        if len(batch) == 0:
+            continue
+        total_rows += len(batch)
+        if batch_count % 5 == 0:
+            logger.info("build_session_index: scanned_batches=%d total_rows=%d", batch_count, total_rows)
+
         d = pc.cast(batch[dataset_col], pa.string())
         s = pc.cast(batch[subject_col], pa.string())
         e = pc.cast(batch[session_col], pa.string())
@@ -115,7 +132,10 @@ def build_session_index(parquet_path: str, cfg: Any, batch_limit: Optional[int] 
                     for k, c in zip(uniq, counts):
                         gap_count[k] = gap_count.get(k, 0) + int(c)
 
-            if prev_key0 is not None and len(t) >= 1:
+            if len(key_np) == 0 or len(t) == 0:
+                continue
+
+            if prev_key0 is not None:
                 if key_np[0] == prev_key0 and (t[0] - prev_t0) > gap_ns:
                     gap_count[prev_key0] = gap_count.get(prev_key0, 0) + 1
 
@@ -294,9 +314,9 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
     result = {
         "train_keys": _to_session_keys(train_df, dataset_col, subject_col, session_col),
         "val_keys": _to_session_keys(val_df, dataset_col, subject_col, session_col),
-        "probe_train_keys": _to_session_keys(probe_train_df, dataset_col, subject_col, session_col),
-        "probe_val_keys": _to_session_keys(probe_val_df, dataset_col, subject_col, session_col),
-        "probe_test_keys": _to_session_keys(probe_test_df, dataset_col, subject_col, session_col),
+        "probe_train_keys": _to_session_keys(pr_train_df, dataset_col, subject_col, session_col),
+        "probe_val_keys": _to_session_keys(pr_val_df, dataset_col, subject_col, session_col),
+        "probe_test_keys": _to_session_keys(pr_test_df, dataset_col, subject_col, session_col),
     }
 
     def log_split(name: str, df: pd.DataFrame):
@@ -304,14 +324,7 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
             logger.info("split=%s empty", name)
             return
         rows = df["n_rows"].sum() if "n_rows" in df else len(df)
-        logger.info(
-            "split=%s sessions=%d rows=%s datasets=%s subjects=%s",
-            name,
-            len(df),
-            rows,
-            dict(df[dataset_col].value_counts()),
-            dict(df[subject_col].value_counts()) if subject_col in df else {},
-        )
+        logger.info("split=%s sessions=%d rows=%s", name, len(df), rows)
 
     def log_labels(name: str, df: pd.DataFrame, topk: int = 10):
         if df.empty or label_col not in df:
@@ -328,12 +341,12 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
 
     log_split("train", train_df)
     log_split("val", val_df)
-    log_split("probe_train", probe_train_df)
-    log_split("probe_val", probe_val_df)
-    log_split("probe_test", probe_test_df)
+    log_split("probe_train", pr_train_df)
+    log_split("probe_val", pr_val_df)
+    log_split("probe_test", pr_test_df)
 
-    log_labels("probe_train", probe_train_df)
-    log_labels("probe_val", probe_val_df)
-    log_labels("probe_test", probe_test_df)
+    log_labels("probe_train", pr_train_df)
+    log_labels("probe_val", pr_val_df)
+    log_labels("probe_test", pr_test_df)
 
     return result

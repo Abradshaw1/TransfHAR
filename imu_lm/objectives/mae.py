@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
 import torch
 from transformers import ViTMAEConfig, ViTMAEForPreTraining
+
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_mae_pretrain_head(model, cfg: Any):
@@ -18,6 +22,21 @@ def ensure_mae_pretrain_head(model, cfg: Any):
     mask_ratio = float(mae_cfg.get("mask_ratio", 0.75))
     norm_pix = bool(mae_cfg.get("norm_pix_loss", False))
     dec_cfg = mae_cfg.get("decoder", {}) or {}
+
+    device = next(model.parameters()).device
+    backbone_id = getattr(model, "backbone_name", None)
+
+    # Warm start: load full HF MAE (encoder + decoder)
+    if backbone_id and backbone_id != "vit_mae_scratch":
+        try:
+            mae_model = ViTMAEForPreTraining.from_pretrained(backbone_id)
+            mae_model.config.mask_ratio = mask_ratio
+            mae_model.config.norm_pix_loss = norm_pix
+            model.mae_model = mae_model.to(device)
+            logger.info("MAE: loaded full HF model (encoder+decoder) from %s", backbone_id)
+            return
+        except Exception as exc:  # pragma: no cover - load fallback
+            logger.warning("MAE: failed to load HF model from %s; falling back to config decoder (%s)", backbone_id, exc)
 
     cfg_copy = model.backbone.config.to_dict()
     cfg_copy.update(
@@ -37,7 +56,7 @@ def ensure_mae_pretrain_head(model, cfg: Any):
     hf_cfg = ViTMAEConfig(**cfg_copy)
     mae_model = ViTMAEForPreTraining(hf_cfg)
     mae_model.vit.load_state_dict(model.backbone.state_dict(), strict=False)
-    model.mae_model = mae_model.to(next(model.parameters()).device)
+    model.mae_model = mae_model.to(device)
 
 
 def forward_loss(batch, model, cfg):

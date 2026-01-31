@@ -25,9 +25,11 @@ def save_encoder(encoder: torch.nn.Module, meta: Dict[str, Any], run_dir: str):
     torch.save(encoder, paths["encoder"])
     with open(paths["meta"], "w") as f:
         json.dump(meta, f, indent=2)
+    print(f"[artifact] saved encoder to {paths['encoder']}")
+    print(f"[artifact] saved encoder_meta to {paths['meta']}")
 
 
 def load_encoder(run_dir: str, map_location=None):
     paths = artifact_paths(run_dir)
-    encoder = torch.load(paths["encoder"], map_location=map_location)
+    encoder = torch.load(paths["encoder"], map_location=map_location, weights_only=False)
     return encoder

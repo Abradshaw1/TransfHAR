@@ -7,6 +7,8 @@ import os
 import random
 from typing import Any, Dict, List, Tuple
 
+import logging
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -42,13 +44,15 @@ def _load_encoder_meta(run_dir: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def _build_label_map(loader: DataLoader, labels_cfg: Dict[str, Any]) -> Dict[str, Any]:
+def _build_label_map(loader: DataLoader, labels_cfg: Dict[str, Any], logger: logging.Logger) -> Dict[str, Any]:
     unknown_id = labels_cfg.get("unknown_id", None)
     drop_unknown = bool(labels_cfg.get("drop_unknown", True))
     min_count = int(labels_cfg.get("min_count_per_class", 0))
 
     counts: Dict[int, int] = {}
+    seen_batches = 0
     for batch in loader:
+        seen_batches += 1
         if batch is None:
             continue
         _, y = batch
@@ -57,12 +61,15 @@ def _build_label_map(loader: DataLoader, labels_cfg: Dict[str, Any]) -> Dict[str
             if drop_unknown and unknown_id is not None and v_int == int(unknown_id):
                 continue
             counts[v_int] = counts.get(v_int, 0) + 1
+        if seen_batches % 100 == 0:
+            logger.info("[probe] label_map progress: batches=%d classes=%d", seen_batches, len(counts))
 
     kept = [k for k, c in counts.items() if c >= min_count]
     kept = sorted(kept)
 
     raw_to_idx = {int(r): i for i, r in enumerate(kept)}
     idx_to_raw = {i: int(r) for i, r in enumerate(kept)}
+    logger.info("[probe] label_map built: classes=%d from %d batches", len(raw_to_idx), seen_batches)
     return {"raw_to_idx": raw_to_idx, "idx_to_raw": idx_to_raw}
 
 
@@ -100,7 +107,7 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
     )
 
 
-def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler):
+def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int):
     encoder.eval()
     head.train()
     total_loss = 0.0
@@ -110,7 +117,7 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
 
     raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
 
-    for batch in train_loader:
+    for batch_idx, batch in enumerate(train_loader, 1):
         if batch is None:
             continue
         x, y_raw = batch
@@ -140,6 +147,10 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
         n_samples += y.shape[0]
         y_true.extend(y.cpu().tolist())
         y_pred.extend(preds.cpu().tolist())
+
+        if log_every_steps and batch_idx % log_every_steps == 0:
+            batch_acc = float((preds == y).float().mean().item()) if y.numel() > 0 else 0.0
+            logger.info("[probe] step=%d loss=%.6f acc=%.4f", batch_idx, loss.detach().item(), batch_acc)
 
     if n_samples == 0:
         return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}
@@ -179,6 +190,9 @@ def main(cfg: Any, run_dir: str):
     # ensure probe batch size overrides loaders
     _apply_probe_batch_size(cfg, train_cfg)
 
+    logger = logging.getLogger(__name__)
+
+    logger.info("[probe] loading encoder from %s", run_dir)
     encoder = artifacts.load_encoder(run_dir, map_location=device)
     encoder = encoder.to(device)
     for p in encoder.parameters():
@@ -187,7 +201,10 @@ def main(cfg: Any, run_dir: str):
 
     meta = _load_encoder_meta(run_dir)
 
-    loaders = make_loaders(cfg)
+    probe_dataset = cfg.get("data", {}).get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
+    logger.info("[probe] building probe loaders (probe_dataset=%s)", probe_dataset)
+    dataset_filter = [probe_dataset] if probe_dataset else None
+    loaders = make_loaders(cfg, dataset_filter=dataset_filter)
     train_loader = loaders.get("probe_train_loader")
     val_loader = loaders.get("probe_val_loader") if loaders else None
     test_loader = loaders.get("probe_test_loader") if loaders else None
@@ -195,12 +212,25 @@ def main(cfg: Any, run_dir: str):
     if train_loader is None:
         raise RuntimeError("probe_train_loader missing; ensure make_loaders returns probe splits")
 
-    label_map = _build_label_map(train_loader, labels_cfg)
+    logger.info(
+        "[probe] splits sessions (by loaders): train=%d val=%d test=%d",
+        len(train_loader.dataset),
+        len(val_loader.dataset) if val_loader else 0,
+        len(test_loader.dataset) if test_loader else 0,
+    )
+
+    label_map = _build_label_map(train_loader, labels_cfg, logger)
+    raw_keys = sorted(list(label_map.get("raw_to_idx", {}).keys()))
+    preview = raw_keys[:10]
+    logger.info(
+        "[probe] label_map classes=%d raw_labels_preview=%s", len(raw_keys), preview
+    )
 
     if fewshot_cfg.get("enabled", False):
         shots = int(fewshot_cfg.get("shots_per_class", 5))
         seed = int(fewshot_cfg.get("seed", 0))
         train_loader = _fewshot_subset(train_loader, label_map, shots, seed)
+        logger.info("[probe] fewshot enabled: shots_per_class=%d seed=%d", shots, seed)
 
     # Determine embedding dim and num_classes
     num_classes = len(label_map.get("raw_to_idx", {}))
@@ -225,6 +255,12 @@ def main(cfg: Any, run_dir: str):
         raise RuntimeError("Could not infer embedding dim from encoder/meta")
 
     label_map["embedding_dim"] = int(embed_dim)
+    logger.info(
+        "[probe] ready: embed_dim=%d num_classes=%d train_batches=%d",
+        embed_dim,
+        num_classes,
+        len(train_loader),
+    )
 
     head = LinearHead(embed_dim, num_classes).to(device)
     optimizer = torch.optim.AdamW(
@@ -238,6 +274,7 @@ def main(cfg: Any, run_dir: str):
     use_amp = bool(train_cfg.get("amp", True))
     selection_metric = train_cfg.get("selection_metric", "macro_f1")
     patience = int(train_cfg.get("early_stop_patience", 5))
+    log_every_steps = int(train_cfg.get("log_every_steps", train_cfg.get("log_every_batches", 1))) or 1
 
     scaler = GradScaler(enabled=use_amp)
 
@@ -246,7 +283,8 @@ def main(cfg: Any, run_dir: str):
     epochs_no_improve = 0
 
     for epoch in range(1, num_epochs + 1):
-        train_metrics = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler)
+        logger.info("[probe] epoch %d/%d train...", epoch, num_epochs)
+        train_metrics = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps)
         val_metrics = eval_head(encoder, head, val_loader, label_map, device) if val_loader is not None else {}
 
         # log
@@ -255,6 +293,9 @@ def main(cfg: Any, run_dir: str):
         if val_loader is not None:
             line_val = f"epoch={epoch} split=val " + format_metrics_txt(val_metrics)
             write_metrics_line(paths["metrics"], line_val)
+        logger.info(line_train)
+        if val_loader is not None:
+            logger.info(line_val)
 
         # checkpoints
         save_checkpoint(paths["latest"], head, optimizer, epoch, label_map)
@@ -269,6 +310,7 @@ def main(cfg: Any, run_dir: str):
             best_epoch = epoch
             epochs_no_improve = 0
             save_checkpoint(paths["best"], head, optimizer, epoch, label_map)
+            logger.info("[probe] new best %s=%.6f at epoch %d; saved %s", selection_metric, best_metric, epoch, paths["best"])
         else:
             epochs_no_improve += 1
 
@@ -292,4 +334,5 @@ def main(cfg: Any, run_dir: str):
         "shots_per_class": fewshot_cfg.get("shots_per_class") if fewshot_cfg.get("enabled", False) else None,
     }
     write_summary(paths["summary"], summary)
+    logger.info("[probe] summary written to %s", paths["summary"])
 
