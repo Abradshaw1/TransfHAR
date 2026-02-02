@@ -13,24 +13,8 @@ import time
 import logging
 from typing import Any, Dict
 
-import yaml
-
 from imu_lm.models.ViT import run as vit_run
-
-
-def _deep_update(base: Dict[str, Any], upd: Dict[str, Any]) -> Dict[str, Any]:
-    out = dict(base)
-    for k, v in upd.items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _deep_update(out[k], v)
-        else:
-            out[k] = v
-    return out
-
-
-def _load_yaml(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+from imu_lm.utils.helpers import deep_update, load_yaml
 
 
 def _resolve_run_dir(cfg: Dict[str, Any], run_name: str | None) -> str:
@@ -62,9 +46,9 @@ def main():
     ap.add_argument("--resume", default=None, help="Checkpoint path or name (latest/best) to resume from")
     args = ap.parse_args()
 
-    base_cfg = _load_yaml(args.config)
-    model_cfg = _load_yaml(args.model_config)
-    cfg = _deep_update(base_cfg, model_cfg)
+    base_cfg = load_yaml(args.config)
+    model_cfg = load_yaml(args.model_config)
+    cfg = deep_update(base_cfg, model_cfg)
 
     run_dir = _resolve_run_dir(cfg, args.run_name)
     _log_resolved(cfg, run_dir)

@@ -209,41 +209,26 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
     num_workers = int(cfg_get(cfg, ["data", "loading", "num_workers"], 0))
     pin_memory = bool(cfg_get(cfg, ["data", "loading", "pin_memory"], False))
 
-    logger.info("build_session_index: start path=%s", parquet_path)
-    if dataset_filter:
-        logger.info("build_session_index: dataset_filter=%s", dataset_filter)
+    mode = "probe" if dataset_filter else "pretrain"
+    logger.info("[%s] build_session_index path=%s", mode, parquet_path)
     session_index = build_session_index(parquet_path, cfg, dataset_filter=dataset_filter)
-    logger.info("build_session_index: done sessions=%d", len(session_index))
+    logger.info("[%s] sessions=%d", mode, len(session_index))
     splits = make_splits(session_index, cfg)
 
-    logger.info(
-        "splits sessions: train=%d val=%d probe_train=%d probe_val=%d probe_test=%d",
-        len(splits.get("train_keys", [])),
-        len(splits.get("val_keys", [])),
-        len(splits.get("probe_train_keys", [])),
-        len(splits.get("probe_val_keys", [])),
-        len(splits.get("probe_test_keys", [])),
-    )
-    logger.info(
-        "loader batch_sizes: train=%d eval=%d (probe_train uses train batch_size)",
-        batch_size,
-        eval_batch_size,
-    )
-
     loaders: Dict[str, DataLoader] = {}
-
-    def add_loader(name: str, keys: List[SessionKey], bs: int, shuffle: bool):
+    def add(name: str, keys: List[SessionKey], bs: int, shuf: bool):
         if not keys:
-            logger.info("split=%s has no sessions; skipping loader", name)
             return
-        ds_obj = WindowDataset(parquet_path, session_index, keys, cfg, split_name=name)
-        loaders[f"{name}_loader"] = _make_loader(ds_obj, bs, shuffle, num_workers, pin_memory)
+        ds = WindowDataset(parquet_path, session_index, keys, cfg, split_name=name)
+        loaders[f"{name}_loader"] = _make_loader(ds, bs, shuf, num_workers, pin_memory)
+        logger.info("[%s] %s_loader: sessions=%d windows=%d batch_size=%d", mode, name, len(keys), len(ds), bs)
 
-    # Disable shuffle to avoid per-window session cache thrash; revisit with a session-aware sampler
-    add_loader("train", splits["train_keys"], batch_size, shuffle=False)
-    add_loader("val", splits["val_keys"], eval_batch_size, shuffle=False)
-    add_loader("probe_train", splits["probe_train_keys"], batch_size, shuffle=True)
-    add_loader("probe_val", splits["probe_val_keys"], eval_batch_size, shuffle=False)
-    add_loader("probe_test", splits["probe_test_keys"], eval_batch_size, shuffle=False)
+    if dataset_filter:
+        add("probe_train", splits["probe_train_keys"], batch_size, True)
+        add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
+        add("probe_test", splits["probe_test_keys"], eval_batch_size, False)
+    else:
+        add("train", splits["train_keys"], batch_size, False)
+        add("val", splits["val_keys"], eval_batch_size, False)
 
     return loaders

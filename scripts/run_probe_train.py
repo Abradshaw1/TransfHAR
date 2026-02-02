@@ -8,24 +8,8 @@ import os
 import logging
 from typing import Any, Dict
 
-import yaml
-
 from imu_lm.probe import train_run
-
-
-def _deep_update(base: Dict[str, Any], upd: Dict[str, Any]) -> Dict[str, Any]:
-    out = dict(base)
-    for k, v in upd.items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _deep_update(out[k], v)
-        else:
-            out[k] = v
-    return out
-
-
-def _load_yaml(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+from imu_lm.utils.helpers import deep_update, load_yaml
 
 
 def _log_resolved(cfg: Dict[str, Any], run_dir: str):
@@ -45,9 +29,9 @@ def main():
     ap.add_argument("--run", required=True, help="Run name under runs/<run>")
     args = ap.parse_args()
 
-    base_cfg = _load_yaml(args.config)
-    probe_cfg = _load_yaml(args.probe_config)
-    cfg = _deep_update(base_cfg, probe_cfg)
+    base_cfg = load_yaml(args.config)
+    probe_cfg = load_yaml(args.probe_config)
+    cfg = deep_update(base_cfg, probe_cfg)
 
     runs_root = cfg.get("paths", {}).get("runs_root", "runs")
     run_dir = os.path.join(runs_root, args.run)

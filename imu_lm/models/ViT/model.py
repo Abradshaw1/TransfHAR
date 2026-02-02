@@ -1,11 +1,12 @@
-"""ViT-MAE encoder wrapper (facebook/vit-mae-base family).
+"""ViT-MAE wrapper using HuggingFace ViTMAEForPreTraining.
 
-Exposes two entry points:
-- forward_tokens(x_img): patch tokens (no CLS) for MAE-style objectives.
-- forward_features(x_img): pooled embedding [B, D] for probes.
+Single source of truth for model loading:
+- warm_start=true: load pretrained HF weights with HF defaults
+- warm_start=false: random init with YAML config overrides
 
-Assumes input from loader is already image-like: [B, 3, F, TT] with return_image=True.
-Resizes internally to vit.input.resize_hw.
+Exposes:
+- forward_features(x): pooled embedding [B, D] for probes
+- mae_model: full HF model for MAE pretraining loss
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ class ViTEncoder(nn.Module):
     def __init__(self, cfg: Any):
         super().__init__()
 
-        vit_cfg = getattr(cfg, "vit", cfg.get("vit")) if cfg is not None else {}
+        vit_cfg = cfg.get("vit", {}) if isinstance(cfg, dict) else getattr(cfg, "vit", {})
         warm_start = bool(vit_cfg.get("warm_start", True))
         pretrained_id = vit_cfg.get("pretrained_id", "facebook/vit-mae-base")
 
@@ -32,16 +33,28 @@ class ViTEncoder(nn.Module):
         patch_size = int(input_cfg.get("patch_size", 16))
         num_channels = int(input_cfg.get("num_channels", 3))
 
+        # MAE objective config
+        obj_cfg = cfg.get("objective", {}) if isinstance(cfg, dict) else getattr(cfg, "objective", {})
+        mae_cfg = obj_cfg.get("mae", {}) or {}
+        mask_ratio = float(mae_cfg.get("mask_ratio", 0.75))
+        norm_pix = bool(mae_cfg.get("norm_pix_loss", False))
+
         if warm_start:
-            mae_full = ViTMAEForPreTraining.from_pretrained(pretrained_id)
+            # Load pretrained with HF defaults, only override mask_ratio/norm_pix
+            self.mae_model = ViTMAEForPreTraining.from_pretrained(pretrained_id)
+            self.mae_model.config.mask_ratio = mask_ratio
+            self.mae_model.config.norm_pix_loss = norm_pix
         else:
+            # Build from scratch with YAML overrides
             arch = vit_cfg.get("arch", {}) or {}
+            dec_cfg = mae_cfg.get("decoder", {}) or {}
             if resize_hw[0] != resize_hw[1]:
                 raise ValueError("ViTMAE scratch init expects square resize_hw")
             hf_cfg = ViTMAEConfig(
                 image_size=int(resize_hw[0]),
                 patch_size=patch_size,
                 num_channels=num_channels,
+                # Encoder
                 hidden_size=int(arch.get("hidden_size", 768)),
                 num_hidden_layers=int(arch.get("num_hidden_layers", 12)),
                 num_attention_heads=int(arch.get("num_attention_heads", 12)),
@@ -52,39 +65,44 @@ class ViTEncoder(nn.Module):
                 qkv_bias=bool(arch.get("qkv_bias", True)),
                 layer_norm_eps=float(arch.get("layer_norm_eps", 1e-12)),
                 initializer_range=float(arch.get("initializer_range", 0.02)),
+                # Decoder
+                decoder_hidden_size=int(dec_cfg.get("hidden_size", 512)),
+                decoder_num_hidden_layers=int(dec_cfg.get("num_hidden_layers", 8)),
+                decoder_num_attention_heads=int(dec_cfg.get("num_attention_heads", 16)),
+                decoder_intermediate_size=int(dec_cfg.get("intermediate_size", 2048)),
+                # MAE
+                mask_ratio=mask_ratio,
+                norm_pix_loss=norm_pix,
             )
-            mae_full = ViTMAEForPreTraining(hf_cfg)
-
-        self.backbone = mae_full.vit
-        self.mae_model = mae_full
+            self.mae_model = ViTMAEForPreTraining(hf_cfg)
 
         self.resize_hw: Tuple[int, int] = (int(resize_hw[0]), int(resize_hw[1]))
         self.patch_size = patch_size
         self.num_channels = num_channels
-        self.embed_dim = int(self.backbone.config.hidden_size)
+        self.embed_dim = int(self.mae_model.config.hidden_size)
         self.pooling = vit_cfg.get("pooling", "mean")
         self.backbone_name = pretrained_id if warm_start else "vit_mae_scratch"
 
     def _prepare(self, x: torch.Tensor) -> torch.Tensor:
-        # x: [B, 3, F, TT] -> resize to [B, 3, H, W]
         if x.dim() != 4:
             raise ValueError(f"Expected x with shape [B,3,H,W], got {x.shape}")
         return resize_bilinear(x.float(), self.resize_hw)
 
     def forward_tokens(self, x: torch.Tensor) -> torch.Tensor:
+        """Patch tokens [B, N, D] without CLS for MAE-style objectives."""
         x_img = self._prepare(x)
-        out = self.backbone(pixel_values=x_img)
+        out = self.mae_model.vit(pixel_values=x_img)
         tokens = out.last_hidden_state  # [B, 1+N, D]
         return tokens[:, 1:, :]  # drop CLS
 
     def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        """Pooled embedding [B, D] for probes."""
         x_img = self._prepare(x)
-        out = self.backbone(pixel_values=x_img)
+        out = self.mae_model.vit(pixel_values=x_img)
         tokens = out.last_hidden_state  # [B, 1+N, D]
         if self.pooling == "cls":
             return tokens[:, 0]
-        # mean pool patch tokens
         return tokens[:, 1:, :].mean(dim=1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:  # optional; defaults to features
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.forward_features(x)

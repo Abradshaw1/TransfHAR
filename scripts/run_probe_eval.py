@@ -7,7 +7,6 @@ import json
 import os
 from typing import Any, Dict
 
-import yaml
 import torch
 
 from imu_lm.data.loaders import make_loaders
@@ -15,22 +14,8 @@ from imu_lm.probe.eval import eval_head
 from imu_lm.probe.head import LinearHead
 from imu_lm.probe.io import load_checkpoint, resolve_probe_dir, write_metrics_line, write_summary
 from imu_lm.runtime_consistency import artifacts
+from imu_lm.utils.helpers import deep_update, load_yaml
 from imu_lm.utils.metrics import format_metrics_txt
-
-
-def _deep_update(base: Dict[str, Any], upd: Dict[str, Any]) -> Dict[str, Any]:
-    out = dict(base)
-    for k, v in upd.items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _deep_update(out[k], v)
-        else:
-            out[k] = v
-    return out
-
-
-def _load_yaml(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
 
 
 def _infer_embed_dim(encoder, loader, label_map, device):
@@ -57,9 +42,9 @@ def main():
     ap.add_argument("--ckpt", default=None, help="Optional checkpoint path (defaults to best.pt)")
     args = ap.parse_args()
 
-    base_cfg = _load_yaml(args.config)
-    probe_cfg = _load_yaml(args.probe_config)
-    cfg = _deep_update(base_cfg, probe_cfg)
+    base_cfg = load_yaml(args.config)
+    probe_cfg = load_yaml(args.probe_config)
+    cfg = deep_update(base_cfg, probe_cfg)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
