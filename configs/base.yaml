@@ -21,7 +21,7 @@ data:
   drop_na: false
   num_workers: 8
   pin_memory: true
-  batch_size: 256
+  batch_size: 128
   eval_batch_size: 512
 
 splits:
@@ -63,10 +63,10 @@ preprocess:
 
 # Default: raw 1D IMU [C, T]. Set spectrogram.enabled: true for ViT-MAE (converts to image)
 raw1d_imu:
-  enabled: true  # informational flag; raw 1D is always available
+  enabled: false  # informational flag; raw 1D is always available
 
 spectrogram:
-  enabled: false  # set true for ViT-MAE path
+  enabled: true  # set true for ViT-MAE path
   n_fft: 128
   win_length: 64
   hop_length: 2
