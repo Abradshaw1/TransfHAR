@@ -63,15 +63,15 @@ preprocess:
 
 # Default: raw 1D IMU [C, T]. Set spectrogram.enabled: true for ViT-MAE (converts to image)
 raw1d_imu:
-  enabled: false  # informational flag; raw 1D is always available
+  enabled: true  # informational flag; raw 1D is always available
 
 spectrogram:
-  enabled: true  # set true for ViT-MAE path
+  enabled: false  # set true for ViT-MAE path
   n_fft: 128
   win_length: 64
   hop_length: 2
   center: true
-  return_image: true
+  return_image: false
 
 gaussian_noise:
   enabled: false

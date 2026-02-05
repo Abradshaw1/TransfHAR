@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from imu_lm.data.loaders import make_loaders
-from imu_lm.models.ViT.model import ViTEncoder
+from imu_lm.models.ViT2D.model import ViTEncoder
 from imu_lm.objectives import masked_2d as masked_2d_obj
 from imu_lm.runtime_consistency.artifacts import save_encoder
 from imu_lm.runtime_consistency.trainer import Trainer

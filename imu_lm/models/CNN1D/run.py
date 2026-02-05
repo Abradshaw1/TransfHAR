@@ -13,7 +13,7 @@ import torch
 
 from imu_lm.data.loaders import make_loaders
 from imu_lm.data.windowing import compute_T_and_hop
-from imu_lm.models.CNN.model import CNN1DEncoder, CNN1DDecoder
+from imu_lm.models.CNN1D.model import CNN1DEncoder, CNN1DDecoder
 from imu_lm.objectives import masked_1d as masked_1d_obj
 from imu_lm.runtime_consistency.artifacts import save_encoder
 from imu_lm.runtime_consistency.trainer import Trainer

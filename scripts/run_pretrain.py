@@ -13,9 +13,9 @@ import time
 import logging
 from typing import Any, Dict
 
-from imu_lm.models.ViT import run as vit_run
+from imu_lm.models.ViT2D import run as vit_run
 from imu_lm.models.ViT1D import run as vit1d_run
-from imu_lm.models.CNN import run as cnn_run
+from imu_lm.models.CNN1D import run as cnn_run
 from imu_lm.models.TSTransformer1D import run as tstransformer1d_run
 from imu_lm.utils.helpers import deep_update, load_yaml
 

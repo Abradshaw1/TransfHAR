@@ -16,8 +16,8 @@ from torch.cuda.amp import GradScaler, autocast
 
 from imu_lm.data.loaders import make_loaders
 from imu_lm.data.splits import build_session_index, make_splits
-from imu_lm.models.ViT import run as vit_run
-from imu_lm.models.ViT.model import ViTEncoder
+from imu_lm.models.ViT2D import run as vit_run
+from imu_lm.models.ViT2D.model import ViTEncoder
 from imu_lm.objectives import mae as mae_obj
 from imu_lm.runtime_consistency.artifacts import save_encoder
 from imu_lm.utils.helpers import cfg_get
