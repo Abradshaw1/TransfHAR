@@ -75,30 +75,33 @@ def smooth_time_warp(x: np.ndarray, max_warp: float, sigma: int) -> np.ndarray:
 
 
 def apply_augment(x: np.ndarray, cfg: Any) -> np.ndarray:
-    """Apply configured augmentations to a raw window [T, C]."""
-
-    aug = cfg_get(cfg, ["data", "augment"], {}) or {}
-    if not aug.get("enabled", False):
-        return x
-
+    """Apply configured augmentations to a raw window [T, C].
+    
+    Augmentations are at top-level in config (flat structure).
+    Each augment has its own enabled flag.
+    """
     out = x
 
-    if aug.get("gaussian_noise", {}).get("enabled", False):
-        sigma = float(aug["gaussian_noise"].get("sigma", 0.0))
+    gn_cfg = cfg_get(cfg, ["gaussian_noise"], {}) or {}
+    if gn_cfg.get("enabled", False):
+        sigma = float(gn_cfg.get("sigma", 0.0))
         out = add_gaussian_noise(out, sigma)
 
-    if aug.get("gain_jitter", {}).get("enabled", False):
-        lo = float(aug["gain_jitter"].get("min_scale", 1.0))
-        hi = float(aug["gain_jitter"].get("max_scale", 1.0))
+    gj_cfg = cfg_get(cfg, ["gain_jitter"], {}) or {}
+    if gj_cfg.get("enabled", False):
+        lo = float(gj_cfg.get("min_scale", 1.0))
+        hi = float(gj_cfg.get("max_scale", 1.0))
         out = apply_gain_jitter(out, lo, hi)
 
-    if aug.get("axis_bias", {}).get("enabled", False):
-        max_bias = float(aug["axis_bias"].get("max_bias", 0.0))
+    ab_cfg = cfg_get(cfg, ["axis_bias"], {}) or {}
+    if ab_cfg.get("enabled", False):
+        max_bias = float(ab_cfg.get("max_bias", 0.0))
         out = apply_axis_bias(out, max_bias)
 
-    if aug.get("time_warp", {}).get("enabled", False):
-        max_warp = float(aug["time_warp"].get("max_warp", 0.0))
-        smooth_sigma = int(aug["time_warp"].get("smooth_sigma", 0))
+    tw_cfg = cfg_get(cfg, ["time_warp"], {}) or {}
+    if tw_cfg.get("enabled", False):
+        max_warp = float(tw_cfg.get("max_warp", 0.0))
+        smooth_sigma = int(tw_cfg.get("smooth_sigma", 0))
         out = smooth_time_warp(out, max_warp=max_warp, sigma=smooth_sigma)
 
     return out

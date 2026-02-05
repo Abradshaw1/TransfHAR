@@ -19,8 +19,8 @@ def compute_T_and_hop(cfg: Any) -> Tuple[int, int]:
     Uses canonical 50Hz sample rate (no config rate field per spec).
     """
 
-    window_seconds = float(cfg_get(cfg, ["data", "windowing", "window_seconds"], 2.56))
-    hop_ratio = float(cfg_get(cfg, ["data", "windowing", "window_hop_ratio"], 0.5))
+    window_seconds = float(cfg_get(cfg, ["windowing", "window_seconds"], 2.56))
+    hop_ratio = float(cfg_get(cfg, ["windowing", "window_hop_ratio"], 0.5))
     T = int(round(window_seconds * CANONICAL_SAMPLE_RATE_HZ))
     hop = max(1, int(round(T * hop_ratio)))
     return T, hop
@@ -32,9 +32,9 @@ def resolve_window_label(yw: np.ndarray, cfg: Any) -> Optional[int]:
     Returns None if the window should be skipped.
     """
 
-    policy = cfg_get(cfg, ["data", "windowing", "label_policy"], "pure")
-    majority_threshold = float(cfg_get(cfg, ["data", "windowing", "majority_threshold"], 0.8))
-    unknown_label_id = cfg_get(cfg, ["data", "loading", "unknown_label_id"], None)
+    policy = cfg_get(cfg, ["windowing", "label_policy"], "pure")
+    majority_threshold = float(cfg_get(cfg, ["windowing", "majority_threshold"], 0.8))
+    unknown_label_id = cfg_get(cfg, ["data", "unknown_label_id"], None)
 
     if yw.size == 0:
         return None

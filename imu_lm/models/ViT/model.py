@@ -28,16 +28,19 @@ class ViTEncoder(nn.Module):
         warm_start = bool(vit_cfg.get("warm_start", True))
         pretrained_id = vit_cfg.get("pretrained_id", "facebook/vit-mae-base")
 
-        input_cfg = vit_cfg.get("input", {}) or {}
-        resize_hw = input_cfg.get("resize_hw", [224, 224])
-        patch_size = int(input_cfg.get("patch_size", 16))
-        num_channels = int(input_cfg.get("num_channels", 3))
+        # Input params under vit
+        resize_hw = vit_cfg.get("resize_hw", [224, 224])
+        patch_size = int(vit_cfg.get("patch_size", 16))
+        num_channels = int(vit_cfg.get("num_channels", 3))
 
-        # MAE objective config
+        # Objective config (mask_ratio, norm_pix_loss directly under objective)
         obj_cfg = cfg.get("objective", {}) if isinstance(cfg, dict) else getattr(cfg, "objective", {})
-        mae_cfg = obj_cfg.get("mae", {}) or {}
-        mask_ratio = float(mae_cfg.get("mask_ratio", 0.75))
-        norm_pix = bool(mae_cfg.get("norm_pix_loss", False))
+        mask_ratio = float(obj_cfg.get("mask_ratio", 0.75))
+        norm_pix = bool(obj_cfg.get("norm_pix_loss", False))
+
+        # Encoder/decoder arch configs (top-level sections)
+        enc_cfg = cfg.get("encoder", {}) if isinstance(cfg, dict) else getattr(cfg, "encoder", {})
+        dec_cfg = cfg.get("decoder", {}) if isinstance(cfg, dict) else getattr(cfg, "decoder", {})
 
         if warm_start:
             # Load pretrained with HF defaults, only override mask_ratio/norm_pix
@@ -46,26 +49,24 @@ class ViTEncoder(nn.Module):
             self.mae_model.config.norm_pix_loss = norm_pix
         else:
             # Build from scratch with YAML overrides
-            arch = vit_cfg.get("arch", {}) or {}
-            dec_cfg = mae_cfg.get("decoder", {}) or {}
             if resize_hw[0] != resize_hw[1]:
                 raise ValueError("ViTMAE scratch init expects square resize_hw")
             hf_cfg = ViTMAEConfig(
                 image_size=int(resize_hw[0]),
                 patch_size=patch_size,
                 num_channels=num_channels,
-                # Encoder
-                hidden_size=int(arch.get("hidden_size", 768)),
-                num_hidden_layers=int(arch.get("num_hidden_layers", 12)),
-                num_attention_heads=int(arch.get("num_attention_heads", 12)),
-                intermediate_size=int(arch.get("intermediate_size", 3072)),
-                hidden_act=arch.get("hidden_act", "gelu"),
-                hidden_dropout_prob=float(arch.get("hidden_dropout_prob", 0.0)),
-                attention_probs_dropout_prob=float(arch.get("attention_probs_dropout_prob", 0.0)),
-                qkv_bias=bool(arch.get("qkv_bias", True)),
-                layer_norm_eps=float(arch.get("layer_norm_eps", 1e-12)),
-                initializer_range=float(arch.get("initializer_range", 0.02)),
-                # Decoder
+                # Encoder (from top-level encoder section)
+                hidden_size=int(enc_cfg.get("hidden_size", 768)),
+                num_hidden_layers=int(enc_cfg.get("num_hidden_layers", 12)),
+                num_attention_heads=int(enc_cfg.get("num_attention_heads", 12)),
+                intermediate_size=int(enc_cfg.get("intermediate_size", 3072)),
+                hidden_act=enc_cfg.get("hidden_act", "gelu"),
+                hidden_dropout_prob=float(enc_cfg.get("hidden_dropout_prob", 0.0)),
+                attention_probs_dropout_prob=float(enc_cfg.get("attention_probs_dropout_prob", 0.0)),
+                qkv_bias=bool(enc_cfg.get("qkv_bias", True)),
+                layer_norm_eps=float(enc_cfg.get("layer_norm_eps", 1e-12)),
+                initializer_range=float(enc_cfg.get("initializer_range", 0.02)),
+                # Decoder (from top-level decoder section)
                 decoder_hidden_size=int(dec_cfg.get("hidden_size", 512)),
                 decoder_num_hidden_layers=int(dec_cfg.get("num_hidden_layers", 8)),
                 decoder_num_attention_heads=int(dec_cfg.get("num_attention_heads", 16)),
@@ -80,7 +81,7 @@ class ViTEncoder(nn.Module):
         self.patch_size = patch_size
         self.num_channels = num_channels
         self.embed_dim = int(self.mae_model.config.hidden_size)
-        self.pooling = vit_cfg.get("pooling", "mean")
+        self.pooling = enc_cfg.get("pooling", "mean")  # pooling is under encoder
         self.backbone_name = pretrained_id if warm_start else "vit_mae_scratch"
 
     def _prepare(self, x: torch.Tensor) -> torch.Tensor:

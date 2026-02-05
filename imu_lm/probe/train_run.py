@@ -158,34 +158,51 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
     return metrics
 
 
-def _apply_probe_batch_size(cfg: Any, train_cfg: Dict[str, Any]):
-    bs = train_cfg.get("batch_size", None)
+def _apply_probe_batch_size(cfg: Any, probe_cfg: Dict[str, Any]):
+    bs = probe_cfg.get("batch_size", None)
     if bs is None:
         return
     if isinstance(cfg, dict):
-        cfg.setdefault("data", {}).setdefault("loading", {})
-        cfg["data"]["loading"]["batch_size"] = bs
-        cfg["data"]["loading"]["eval_batch_size"] = bs
+        cfg.setdefault("data", {})
+        cfg["data"]["batch_size"] = bs
+        cfg["data"]["eval_batch_size"] = bs
     else:
         if not hasattr(cfg, "data"):
             return
-        if not hasattr(cfg.data, "loading"):
-            return
-        cfg.data.loading.batch_size = bs
-        cfg.data.loading.eval_batch_size = bs
+        cfg.data.batch_size = bs
+        cfg.data.eval_batch_size = bs
 
 
 def main(cfg: Any, run_dir: str):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     probe_cfg = cfg.get("probe", {}) if isinstance(cfg, dict) else getattr(cfg, "probe", {})
-    labels_cfg = probe_cfg.get("labels", {})
-    fewshot_cfg = probe_cfg.get("fewshot", {})
-    train_cfg = probe_cfg.get("train", {})
+    # Flattened probe config: labels/fewshot/train fields are now directly under probe
+    labels_cfg = {
+        "unknown_id": probe_cfg.get("unknown_id"),
+        "drop_unknown": probe_cfg.get("drop_unknown", True),
+        "min_count_per_class": probe_cfg.get("min_count_per_class", 0),
+    }
+    fewshot_cfg = {
+        "enabled": probe_cfg.get("fewshot_enabled", False),
+        "shots_per_class": probe_cfg.get("fewshot_shots_per_class", 5),
+        "seed": probe_cfg.get("fewshot_seed", 0),
+    }
+    train_cfg = {
+        "num_epochs": probe_cfg.get("num_epochs", 100),
+        "batch_size": probe_cfg.get("batch_size", 256),
+        "lr": probe_cfg.get("lr", 0.0001),
+        "weight_decay": probe_cfg.get("weight_decay", 0.0),
+        "grad_clip_norm": probe_cfg.get("grad_clip_norm", 1.0),
+        "early_stop_patience": probe_cfg.get("early_stop_patience", 20),
+        "amp": probe_cfg.get("amp", True),
+        "selection_metric": probe_cfg.get("selection_metric", "macro_f1"),
+        "log_every_batches": probe_cfg.get("log_every_batches", 5),
+    }
 
     paths = resolve_probe_dir(run_dir, cfg)
     # ensure probe batch size overrides loaders
-    _apply_probe_batch_size(cfg, train_cfg)
+    _apply_probe_batch_size(cfg, probe_cfg)
 
     logger = logging.getLogger(__name__)
 
@@ -198,7 +215,7 @@ def main(cfg: Any, run_dir: str):
 
     meta = _load_encoder_meta(run_dir)
 
-    probe_dataset = cfg.get("data", {}).get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
+    probe_dataset = cfg.get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
     logger.info("[probe] building probe loaders (probe_dataset=%s)", probe_dataset)
     loaders = make_loaders(cfg, dataset_filter=[probe_dataset] if probe_dataset else None)
     train_loader = loaders.get("probe_train_loader")

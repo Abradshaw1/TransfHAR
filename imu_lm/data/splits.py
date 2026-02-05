@@ -42,16 +42,16 @@ def build_session_index(
     ``dataset_filter`` restricts scan to these dataset names if provided.
     """
 
-    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
-    time_col = cfg_get(cfg, ["data", "loading", "time_column"], None)
-    label_col = cfg_get(cfg, ["data", "loading", "label_column"], None)
-    handle_gaps = bool(cfg_get(cfg, ["data", "windowing", "handle_gaps"], False))
+    dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "session_column"], "session_id")
+    time_col = cfg_get(cfg, ["data", "time_column"], None)
+    label_col = cfg_get(cfg, ["data", "label_column"], None)
+    handle_gaps = bool(cfg_get(cfg, ["windowing", "handle_gaps"], False))
     if not handle_gaps:
         time_col = None
 
-    max_gap_ms = float(cfg_get(cfg, ["data", "windowing", "max_gap_ms"], 200.0))
+    max_gap_ms = float(cfg_get(cfg, ["windowing", "max_gap_ms"], 200.0))
     gap_ns = int(max_gap_ms * 1e6)
 
     cols = [dataset_col, subject_col, session_col]
@@ -193,10 +193,10 @@ def _split_by_ratio(groups: List[np.ndarray], ratios: List[float]) -> List[List[
 def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[SessionKey]]:
     """Create deterministic splits according to cfg.data.splits."""
 
-    splits_cfg = cfg_get(cfg, ["data", "splits"], {}) or {}
-    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
+    splits_cfg = cfg_get(cfg, ["splits"], {}) or {}
+    dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "session_column"], "session_id")
 
     probe_dataset = splits_cfg.get("probe_dataset")
     group_key = splits_cfg.get("group_key") or session_col
@@ -205,7 +205,7 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
     probe_ratios = splits_cfg.get("probe_ratios", [0.7, 0.1, 0.2])
     seed = int(splits_cfg.get("seed", 0))
     probe_stratify = bool(splits_cfg.get("probe_stratify_by_label", False))
-    label_col = cfg_get(cfg, ["data", "loading", "label_column"], "global_activity_id")
+    label_col = cfg_get(cfg, ["data", "label_column"], "global_activity_id")
 
     rng = np.random.RandomState(seed)
 

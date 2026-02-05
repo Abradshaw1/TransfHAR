@@ -1,0 +1,49 @@
+# this is same as samosa architecture
+cnn1d:
+  encoder:
+    conv_filters: [128, 128, 256, 256]
+    kernel_size: 10
+    stride: 1
+    activation: relu
+    use_batch_norm: true
+    pool_size: 2
+    dropout: 0.5
+    fc_dims: [1000, 500, 250]
+    output_activation: sigmoids
+
+  decoder:
+    decoder_hidden_size: 256
+    decoder_num_layers: 4
+
+# 1D Masked Autoencoder objective (LSM-2 style)
+objective:
+  loss: mse
+  skip_missing: true
+  mask_random: 0.8
+  mask_temporal: 0.5
+  mask_signal: 0.5
+
+trainer:
+  seed: 42
+  amp: true
+  max_steps: 0
+  grad_clip_norm: 1.0
+  grad_accum_steps: 1
+
+  optim:
+    name: adam
+    lr: 0.001
+    weight_decay: 0.0
+    betas: [0.9, 0.999]
+    eps: 1.0e-8
+
+  sched:
+    name: reduce_on_plateau
+    monitor: val_loss
+    patience: 5
+    factor: 0.5
+
+  early_stopping:
+    enabled: true
+    monitor: val_loss
+    patience: 5

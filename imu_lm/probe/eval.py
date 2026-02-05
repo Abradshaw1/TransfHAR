@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Iterable
 
 import numpy as np
@@ -9,6 +10,8 @@ import torch
 import torch.nn.functional as F
 
 from imu_lm.utils.metrics import compute_metrics
+
+logger = logging.getLogger(__name__)
 
 
 def _remap_labels(y: torch.Tensor, raw_to_idx: Dict[int, int]) -> torch.Tensor:
@@ -37,8 +40,9 @@ def eval_head(
     total_loss = 0.0
     n_samples = 0
 
+    total_batches = len(loader) if hasattr(loader, '__len__') else None
     with torch.no_grad():
-        for batch in loader:
+        for batch_idx, batch in enumerate(loader, 1):
             if batch is None:
                 continue
             x, y_raw = batch
@@ -60,6 +64,9 @@ def eval_head(
             n_samples += y.shape[0]
             y_true = np.concatenate([np.asarray(y_true), y.cpu().numpy()]) if len(y_true) else y.cpu().numpy()
             y_pred = np.concatenate([np.asarray(y_pred), preds.cpu().numpy()]) if len(y_pred) else preds.cpu().numpy()
+
+            if batch_idx % 5 == 0 or batch_idx == total_batches:
+                logger.info("[eval] batch %d/%s samples=%d", batch_idx, total_batches or "?", n_samples)
 
     if n_samples == 0:
         return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}

@@ -42,6 +42,14 @@ class Trainer:
         self.max_steps = int(cfg_get(cfg, ["trainer", "max_steps"], 100000))
         self.use_amp = bool(cfg_get(cfg, ["trainer", "amp"], False))
 
+        # Early stopping config
+        es_cfg = cfg_get(cfg, ["trainer", "early_stopping"], {}) or {}
+        self.early_stopping_enabled = bool(es_cfg.get("enabled", False))
+        self.early_stopping_patience = int(es_cfg.get("patience", 5))
+        self.best_val_loss = float("inf")
+        self.epochs_without_improvement = 0
+        self.ckpt_best = os.path.join(run_dir, "checkpoints", "best.pt")
+
     def fit(
         self,
         model: torch.nn.Module,
@@ -98,7 +106,21 @@ class Trainer:
             # Simple val pass per epoch
             if val_loader is not None:
                 print(f"[train] eval at step {step}")
-                self._eval(val_loader, model, objective_step, step, metrics_f)
+                val_loss = self._eval(val_loader, model, objective_step, step, metrics_f)
+                
+                # Early stopping check
+                if self.early_stopping_enabled and val_loss is not None:
+                    if val_loss < self.best_val_loss:
+                        self.best_val_loss = val_loss
+                        self.epochs_without_improvement = 0
+                        self._save_ckpt(model, optimizer, step, path=self.ckpt_best)
+                        print(f"[train] new best val_loss={val_loss:.6f}")
+                    else:
+                        self.epochs_without_improvement += 1
+                        print(f"[train] no improvement for {self.epochs_without_improvement} epochs")
+                        if self.epochs_without_improvement >= self.early_stopping_patience:
+                            print(f"[train] early stopping triggered at step {step}")
+                            break
 
         metrics_f.close()
         # final checkpoint
@@ -117,11 +139,12 @@ class Trainer:
                 total_loss += float(loss.detach().item())
                 count += 1
         if count == 0:
-            return
+            return None
         avg_loss = total_loss / count
         line = f"step={step} split=val loss={avg_loss:.6f}"
         metrics_f.write(line + "\n")
         print(line)
+        return avg_loss
 
     def _get_lr(self, optimizer):
         if optimizer is None or len(optimizer.param_groups) == 0:
@@ -139,15 +162,16 @@ class Trainer:
                 tokens.append(f"{k}={v}")
         return " ".join(tokens)
 
-    def _save_ckpt(self, model, optimizer, step: int):
+    def _save_ckpt(self, model, optimizer, step: int, path: Optional[str] = None):
         state = {
             "step": step,
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict() if optimizer else None,
             "cfg": self.cfg,
         }
-        torch.save(state, self.ckpt_latest)
-        print(f"[train] saved checkpoint {self.ckpt_latest} (step={step})")
+        save_path = path or self.ckpt_latest
+        torch.save(state, save_path)
+        print(f"[train] saved checkpoint {save_path} (step={step})")
 
     def _to_device(self, batch):
         if isinstance(batch, (list, tuple)):

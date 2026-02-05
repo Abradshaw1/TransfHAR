@@ -1,0 +1,47 @@
+# TSTransformer1D: Time-Series Transformer for 1D IMU signals
+tstransformer1d:
+  encoder:
+    d_model: 128
+    nhead: 4
+    num_layers: 2
+    dim_feedforward: 256
+    dropout: 0.1
+    pooling: mean  # or 'cls'
+
+  decoder:
+    d_model: 128
+    nhead: 4
+    num_layers: 2
+    dim_feedforward: 256
+    dropout: 0.1
+
+# 1D Masked Autoencoder objective (LSM-2 style)
+objective:
+  loss: mse
+  skip_missing: true
+  mask_random: 0.8
+  mask_temporal: 0.5
+  mask_signal: 0.5
+
+trainer:
+  seed: 42
+  amp: true
+  max_steps: 0
+  grad_clip_norm: 1.0
+  grad_accum_steps: 1
+
+  optim:
+    name: adamw
+    lr: 0.001
+    weight_decay: 0.0001
+    betas: [0.9, 0.999]
+    eps: 1.0e-8
+
+  sched:
+    name: cosine
+    warmup_steps: 100
+
+  early_stopping:
+    enabled: true
+    monitor: val_loss
+    patience: 5

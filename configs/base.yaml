@@ -1,94 +1,92 @@
 paths:
-  # data_root: "/path/to/datadrive"  # optional root if using relative dataset paths
   runs_root: "/home/aidan/TransfHAR/runs"
+  dataset_path: "/home/aidan/TransfHAR/imu_lm/data/data_drive/IMULM_master_dataset.parquet"
+
 logging:
   log_every_steps: 5
-  ckpt_every_steps: 1000
+  ckpt_every_steps: 100
 
 wandb:
   project: imu-lm
   entity: imu-lm
 
 data:
-  loading:
-    dataset_path: "/home/aidan/TransfHAR/imu_lm/data/data_drive/IMULM_master_dataset.parquet"
-    dataset_column: dataset
-    subject_column: subject_id
-    session_column: session_id
-    time_column: timestamp_ns
-    label_column: dataset_activity_id
-    unknown_label_id: 9000
-    sensor_columns: [acc_x, acc_y, acc_z]
-    drop_na: false
-    num_workers: 8
-    pin_memory: true
-    batch_size: 256
-    eval_batch_size: 512
+  dataset_column: dataset
+  subject_column: subject_id
+  session_column: session_id
+  time_column: timestamp_ns
+  label_column: dataset_activity_id
+  unknown_label_id: 9000
+  sensor_columns: [acc_x, acc_y, acc_z]
+  drop_na: false
+  num_workers: 8
+  pin_memory: true
+  batch_size: 256
+  eval_batch_size: 512
 
-  splits:
-    seed: 0
-    probe_dataset: prism
-    group_key: subject_id         # if missing/null -> fallback to session_id
-    shuffle: true
-    val_ratio: 0.05               # for non-probe training split only
-    probe_ratios: [0.7, 0.1, 0.2] # train/val/test inside probe dataset
-    probe_stratify_by_label: true
+splits:
+  seed: 0
+  # probe_dataset is set in probe.yaml
+  group_key: subject_id         # if missing/null -> fallback to session_id
+  shuffle: true
+  val_ratio: 0.05               # for non-probe training split only
 
-  windowing:
-    window_seconds: 2.56
-    window_hop_ratio: 0.5
-    # label assignment for a window
-    label_policy: center            # pure | majority | center | unknown_if_mixed
-    majority_threshold: 0.8       # only used if label_policy=majority
-    # optional gap-awareness (does NOT change stride; stride uses index)
-    handle_gaps: true
-    gap_method: interpolate       # interpolate | split_segment | drop
-    max_gap_ms: 200              # only used when handle_gaps=true
-    max_gaps_per_session: 100
+windowing:
+  window_seconds: 2.56
+  window_hop_ratio: 0.5
+  # label assignment for a window
+  label_policy: center            # pure | majority | center | unknown_if_mixed
+  majority_threshold: 0.8       # only used if label_policy=majority
+  # optional gap-awareness (does NOT change stride; stride uses index)
+  handle_gaps: true
+  gap_method: interpolate       # interpolate | split_segment | drop
+  max_gap_ms: 200              # only used when handle_gaps=true
+  max_gaps_per_session: 100
 
-  preprocess:
-    impute:
-      enabled: true
-      method: linear             # linear | spline
-      max_missing_frac: 0.2
-
-    filter:
-      enabled: true
-      type: lowpass             # lowpass | highpass | bandpass
-      order: 4
-      low_hz: 0.5
-      high_hz: 24
-
-    normalize:
-      enabled: true
-      method: zscore             # zscore | robust | minmax
-      eps: 1e-6
-
-  augment:
+preprocess:
+  impute:
     enabled: true
+    method: linear             # linear | spline
+    max_missing_frac: 0.2
 
-    spectrogram:
-      enabled: true
-      n_fft: 64
-      win_length: 64
-      hop_length: 4
-      center: false
-      return_image: true
+  filter:
+    enabled: true
+    type: lowpass             # lowpass | highpass | bandpass
+    order: 4
+    low_hz: 0.5
+    high_hz: 24
 
-    gaussian_noise:
-      enabled: false
-      sigma: 0.6            # std in signal units (e.g., m/s^2)
+  normalize:
+    enabled: true
+    method: zscore             # zscore | robust | minmax
+    eps: 1e-6
 
-    gain_jitter:
-      enabled: false
-      min_scale: 1.6
-      max_scale: 5.1
+# Default: raw 1D IMU [C, T]. Set spectrogram.enabled: true for ViT-MAE (converts to image)
+raw1d_imu:
+  enabled: true  # informational flag; raw 1D is always available
 
-    time_warp:
-      enabled: false
-      max_warp: 0.05         # ±15% temporal distortion
-      smooth_sigma: 1        # smoothness of warp (higher = smoother)
+spectrogram:
+  enabled: false  # set true for ViT-MAE path
+  n_fft: 128
+  win_length: 64
+  hop_length: 2
+  center: true
+  return_image: true
 
-    axis_bias:
-      enabled: false
-      max_bias: 5.8
+gaussian_noise:
+  enabled: false
+  sigma: 0.6            # std in signal units (e.g., m/s^2)
+
+gain_jitter:
+  enabled: false
+  min_scale: 1.6
+  max_scale: 5.1
+
+time_warp:
+  enabled: false
+  max_warp: 0.05         # ±15% temporal distortion
+  smooth_sigma: 1        # smoothness of warp (higher = smoother)
+
+axis_bias:
+  enabled: false
+  max_bias: 5.8

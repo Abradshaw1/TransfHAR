@@ -1,6 +1,6 @@
-"""CNN1D Stage A wiring: loaders → encoder + decoder → objective → trainer → artifacts.
+"""ViT1D Stage A wiring: loaders → encoder + decoder → objective → trainer → artifacts.
 
-The encoder is objective-agnostic. The decoder is CNN-specific and lives in model.py.
+The encoder is objective-agnostic. The decoder is ViT1D-specific and lives in model.py.
 After pretraining, we discard the decoder and save only the encoder.
 """
 
@@ -13,7 +13,7 @@ import torch
 
 from imu_lm.data.loaders import make_loaders
 from imu_lm.data.windowing import compute_T_and_hop
-from imu_lm.models.CNN.model import CNN1DEncoder, CNN1DDecoder
+from imu_lm.models.ViT1D.model import ViT1DEncoder, ViT1DDecoder
 from imu_lm.objectives import masked_1d as masked_1d_obj
 from imu_lm.runtime_consistency.artifacts import save_encoder
 from imu_lm.runtime_consistency.trainer import Trainer
@@ -26,7 +26,7 @@ from imu_lm.utils.training import (
 )
 
 
-def _make_objective_fn(encoder: CNN1DEncoder, decoder: CNN1DDecoder, cfg: Any):
+def _make_objective_fn(encoder: ViT1DEncoder, decoder: ViT1DDecoder, cfg: Any):
     """Wrap masked_1d.forward_loss to match Trainer's expected signature.
     
     Trainer expects: objective_step(batch, model, cfg) → (loss, logs)
@@ -46,8 +46,8 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     T, _ = compute_T_and_hop(cfg)
     
     # Create encoder (what we keep) and decoder (throwaway after pretraining)
-    encoder = CNN1DEncoder(cfg)
-    decoder = CNN1DDecoder(
+    encoder = ViT1DEncoder(cfg)
+    decoder = ViT1DDecoder(
         embed_dim=encoder.embed_dim,
         out_channels=encoder.in_channels,
         target_T=T,
@@ -72,16 +72,23 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     # Save encoder only (decoder is discarded)
     data_cfg = cfg_get(cfg, ["data"], {}) or {}
     sensor_cols = data_cfg.get("sensor_columns", ["acc_x", "acc_y", "acc_z"])
+    vit_cfg = cfg_get(cfg, ["vit1d"], {}) or {}
     
     meta = {
         "embedding_dim": encoder.embed_dim,
         "encoding": "raw_1d_imu",
         "objective": "masked_1d",
-        "backbone": "cnn1d",
+        "backbone": "vit1d",
         "input_spec": {
             "channels": len(sensor_cols),
             "time_steps": T,
+            "patch_size": encoder.patch_size,
             "format": "[B, C, T]",
+        },
+        "architecture": {
+            "hidden_size": encoder.embed_dim,
+            "num_layers": int(vit_cfg.get("num_hidden_layers", 12)),
+            "num_heads": int(vit_cfg.get("num_attention_heads", 6)),
         },
         "normalization": cfg_get(cfg, ["preprocess", "normalize", "method"], None),
     }

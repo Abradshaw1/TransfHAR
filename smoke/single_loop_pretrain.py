@@ -53,14 +53,12 @@ def _resolve_run_dir(cfg: Dict[str, Any], run_name: str | None) -> str:
 def _log_resolved(cfg: Dict[str, Any], run_dir: str):
     log_path = os.path.join(run_dir, "logs", "resolved_config.json")
     essentials = {
-        "model.name": cfg_get(cfg, ["model", "name"], None),
-        "objective.name": cfg_get(cfg, ["objective", "name"], None),
         "vit.warm_start": cfg_get(cfg, ["vit", "warm_start"], None),
         "vit.pretrained_id": cfg_get(cfg, ["vit", "pretrained_id"], None),
-        "data.splits.probe_dataset": cfg_get(cfg, ["data", "splits", "probe_dataset"], None),
-        "data.splits.probe_ratios": cfg_get(cfg, ["data", "splits", "probe_ratios"], None),
-        "data.loading.batch_size": cfg_get(cfg, ["data", "loading", "batch_size"], None),
-        "data.loading.eval_batch_size": cfg_get(cfg, ["data", "loading", "eval_batch_size"], None),
+        "splits.probe_dataset": cfg_get(cfg, ["splits", "probe_dataset"], None),
+        "splits.probe_ratios": cfg_get(cfg, ["splits", "probe_ratios"], None),
+        "data.batch_size": cfg_get(cfg, ["data", "batch_size"], None),
+        "data.eval_batch_size": cfg_get(cfg, ["data", "eval_batch_size"], None),
         "paths.runs_root": cfg_get(cfg, ["paths", "runs_root"], None),
         "run_dir": run_dir,
     }
@@ -125,7 +123,7 @@ def _build_meta(model: ViTEncoder, cfg: Any) -> Dict[str, Any]:
     return {
         "embedding_dim": model.embed_dim,
         "encoding": "spectrogram_image",
-        "objective": cfg_get(cfg, ["objective", "name"], "mae"),
+        "objective": "mae",
         "backbone": model.backbone_name,
         "input_spec": {
             "channels": model.num_channels,
@@ -133,7 +131,7 @@ def _build_meta(model: ViTEncoder, cfg: Any) -> Dict[str, Any]:
             "width": model.resize_hw[1],
             "patch_size": model.patch_size,
         },
-        "normalization": cfg_get(cfg, ["data", "preprocess", "normalize", "method"], None),
+        "normalization": cfg_get(cfg, ["preprocess", "normalize", "method"], None),
     }
 
 
@@ -153,9 +151,9 @@ def main():
     _log_resolved(cfg, run_dir)
 
     # Build session index/splits and assert no probe leakage in train/val
-    session_index = build_session_index(cfg_get(cfg, ["data", "loading", "dataset_path"]), cfg)
+    session_index = build_session_index(cfg_get(cfg, ["paths", "dataset_path"]), cfg)
     splits = make_splits(session_index, cfg)
-    probe_dataset = cfg_get(cfg, ["data", "splits", "probe_dataset"], None)
+    probe_dataset = cfg_get(cfg, ["splits", "probe_dataset"], None)
     _assert_no_probe_leakage(splits, probe_dataset)
 
     # Build loaders
@@ -173,9 +171,7 @@ def main():
 
     # Build model/objective/optim
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ViTEncoder(cfg).to(device)
-    if cfg_get(cfg, ["objective", "name"], "mae") == "mae":
-        mae_obj.ensure_mae_pretrain_head(model, cfg)
+    model = ViTEncoder(cfg).to(device)  # mae_model already attached
     objective_fn = mae_obj.forward_loss
     optimizer = vit_run._build_optimizer(model, cfg)
     scheduler = vit_run._build_scheduler(optimizer, cfg)

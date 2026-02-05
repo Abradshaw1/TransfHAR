@@ -29,11 +29,11 @@ class PreprocessStats:
 
 
 def impute_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = None) -> Optional[np.ndarray]:
-    if not bool(cfg_get(cfg, ["data", "preprocess", "impute", "enabled"], False)):
+    if not bool(cfg_get(cfg, ["preprocess", "impute", "enabled"], False)):
         return Xw
 
-    method = cfg_get(cfg, ["data", "preprocess", "impute", "method"], "linear")
-    max_missing = float(cfg_get(cfg, ["data", "preprocess", "impute", "max_missing_frac"], 0.0))
+    method = cfg_get(cfg, ["preprocess", "impute", "method"], "linear")
+    max_missing = float(cfg_get(cfg, ["preprocess", "impute", "max_missing_frac"], 0.0))
 
     missing_mask = np.isnan(Xw)
     missing_frac = missing_mask.mean() if Xw.size else 0.0
@@ -70,7 +70,7 @@ def impute_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = N
 
 
 def filter_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = None) -> np.ndarray:
-    filt_cfg = cfg_get(cfg, ["data", "preprocess", "filter"], {}) or {}
+    filt_cfg = cfg_get(cfg, ["preprocess", "filter"], {}) or {}
     if not filt_cfg.get("enabled", False):
         return Xw
 
@@ -105,7 +105,7 @@ def filter_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = N
 
 
 def normalize_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = None) -> np.ndarray:
-    norm_cfg = cfg_get(cfg, ["data", "preprocess", "normalize"], {}) or {}
+    norm_cfg = cfg_get(cfg, ["preprocess", "normalize"], {}) or {}
     if not norm_cfg.get("enabled", False):
         return Xw
 

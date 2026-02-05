@@ -42,9 +42,9 @@ def _discover_datasets(parquet_path: str, dataset_col: str, limit_batches: int =
 
 
 def _scan_sessions_for_dataset(parquet_path: str, cfg: Any, dataset_name: str, max_batches: int = 20) -> pd.DataFrame:
-    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
+    dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "session_column"], "session_id")
 
     columns = [dataset_col, subject_col, session_col]
     dataset = ds.dataset(parquet_path, format="parquet")
@@ -66,14 +66,14 @@ def _scan_sessions_for_dataset(parquet_path: str, cfg: Any, dataset_name: str, m
 
 def main(cfg_path: str) -> int:
     cfg = load_cfg(cfg_path)
-    parquet_path = cfg["data"]["loading"].get("dataset_path")
+    parquet_path = cfg.get("paths", {}).get("dataset_path")
     if not parquet_path:
-        logger.error("data.loading.dataset_path not set in config")
+        logger.error("paths.dataset_path not set in config")
         return 1
 
-    dataset_col = cfg_get(cfg, ["data", "loading", "dataset_column"], "dataset")
-    subject_col = cfg_get(cfg, ["data", "loading", "subject_column"], "subject_id")
-    session_col = cfg_get(cfg, ["data", "loading", "session_column"], "session_id")
+    dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+    subject_col = cfg_get(cfg, ["data", "subject_column"], "subject_id")
+    session_col = cfg_get(cfg, ["data", "session_column"], "session_id")
 
     # Get dataset list from expectation or a quick discovery scan.
     datasets = EXPECTED_DATASETS if EXPECTED_DATASETS is not None else _discover_datasets(parquet_path, dataset_col, limit_batches=5)

@@ -14,6 +14,9 @@ import logging
 from typing import Any, Dict
 
 from imu_lm.models.ViT import run as vit_run
+from imu_lm.models.ViT1D import run as vit1d_run
+from imu_lm.models.CNN import run as cnn_run
+from imu_lm.models.TSTransformer1D import run as tstransformer1d_run
 from imu_lm.utils.helpers import deep_update, load_yaml
 
 
@@ -53,11 +56,17 @@ def main():
     run_dir = _resolve_run_dir(cfg, args.run_name)
     _log_resolved(cfg, run_dir)
 
-    model_name = cfg.get("model", {}).get("name", "")
-    if model_name == "vit":
+    # Detect model type by config keys
+    if "cnn1d" in cfg:
+        cnn_run.main(cfg, run_dir, resume_ckpt=args.resume)
+    elif "vit1d" in cfg:
+        vit1d_run.main(cfg, run_dir, resume_ckpt=args.resume)
+    elif "tstransformer1d" in cfg:
+        tstransformer1d_run.main(cfg, run_dir, resume_ckpt=args.resume)
+    elif "vit" in cfg:
         vit_run.main(cfg, run_dir, resume_ckpt=args.resume)
     else:
-        raise ValueError(f"Unsupported model.name={model_name}")
+        raise ValueError("No supported model config found (expected 'vit', 'vit1d', 'tstransformer1d', or 'cnn1d' section)")
 
 
 if __name__ == "__main__":

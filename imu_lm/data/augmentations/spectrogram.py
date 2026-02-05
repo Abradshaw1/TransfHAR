@@ -38,7 +38,7 @@ def stft_encode(x_ct: torch.Tensor, cfg: Any) -> Tuple[torch.Tensor, torch.Tenso
     if x_ct.dim() != 2:
         raise ValueError(f"Expected x_ct of shape [C, T], got {x_ct.shape}")
 
-    scfg = cfg_get(cfg, ["data", "augment", "spectrogram"], {}) or {}
+    scfg = cfg_get(cfg, ["spectrogram"], {}) or {}
     n_fft = int(scfg.get("n_fft", 64))
     win_length = int(scfg.get("win_length", n_fft))
     hop_length = int(scfg.get("hop_length", max(1, win_length // 4)))

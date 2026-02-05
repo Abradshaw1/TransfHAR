@@ -1,27 +1,23 @@
+splits:
+  probe_dataset: prism
+  probe_ratios: [0.7, 0.1, 0.2]  # train/val/test inside probe dataset
+  probe_stratify_by_label: true
+
 probe:
-  encoder:
-    artifact_relpath: "artifacts/encoder.pt"
-    meta_relpath: "artifacts/encoder_meta.json"
-
-  labels:
-    drop_unknown: false
-    min_count_per_class: 0
-
-  fewshot:
-    enabled: false
-    shots_per_class: 5
-    seed: 0
-
-  train:
-    num_epochs: 100
-    batch_size: 256
-    lr: 0.0001
-    weight_decay: 0.0
-    grad_clip_norm: 1.0
-    early_stop_patience: 20
-    amp: true
-    selection_metric: macro_f1
-    log_every_batches: 5
-
-  output:
-    probe_dirname: "probe"
+  encoder_artifact_relpath: "artifacts/encoder.pt"
+  encoder_meta_relpath: "artifacts/encoder_meta.json"
+  drop_unknown: false
+  min_count_per_class: 0
+  fewshot_enabled: false
+  fewshot_shots_per_class: 5
+  fewshot_seed: 0
+  num_epochs: 100
+  batch_size: 256
+  lr: 0.0001
+  weight_decay: 0.0
+  grad_clip_norm: 1.0
+  early_stop_patience: 20
+  amp: true
+  selection_metric: macro_f1
+  log_every_batches: 5
+  probe_dirname: "probe"

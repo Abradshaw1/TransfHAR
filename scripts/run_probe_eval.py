@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from typing import Any, Dict
 
@@ -35,6 +36,9 @@ def _infer_embed_dim(encoder, loader, label_map, device):
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    logger = logging.getLogger(__name__)
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Base config YAML")
     ap.add_argument("--probe-config", required=True, help="Probe config YAML")
@@ -55,12 +59,16 @@ def main():
 
     paths = resolve_probe_dir(run_dir, cfg)
 
+    logger.info("[probe eval] loading encoder from %s", run_dir)
     encoder = artifacts.load_encoder(run_dir, map_location=device).to(device)
     encoder.eval()
     for p in encoder.parameters():
         p.requires_grad = False
 
-    loaders = make_loaders(cfg)
+    probe_dataset = cfg.get("data", {}).get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
+    logger.info("[probe eval] building data loaders (probe_dataset=%s)...", probe_dataset)
+    loaders = make_loaders(cfg, dataset_filter=[probe_dataset] if probe_dataset else None)
+    logger.info("[probe eval] data loaders ready")
     test_loader = loaders.get("probe_test_loader") if loaders else None
     if test_loader is None:
         raise SystemExit("probe_test_loader missing; cannot eval")
@@ -92,6 +100,7 @@ def main():
     head.load_state_dict(state)
     head.eval()
 
+    logger.info("[probe eval] running evaluation on test split...")
     metrics = eval_head(encoder, head, test_loader, label_map, device)
 
     line = "split=test " + format_metrics_txt(metrics)
@@ -103,6 +112,21 @@ def main():
         "num_classes": num_classes,
     }
     write_summary(paths["summary"], summary)
+
+    # Print summary metrics
+    labels = metrics.get("labels", [])
+    per_class_f1 = metrics.get("per_class_f1", {})
+    idx_to_raw = label_map.get("idx_to_raw", {})
+    
+    print(f"\n[probe eval] ===== TEST RESULTS =====")
+    print(f"[probe eval] classes evaluated: {len(labels)} (expected: {num_classes})")
+    print(f"[probe eval] bal_acc={metrics.get('bal_acc', 0):.4f}  macro_f1={metrics.get('macro_f1', 0):.4f}")
+    print(f"\n[probe eval] Per-class F1:")
+    for idx in sorted(per_class_f1.keys()):
+        raw_label = idx_to_raw.get(str(idx), idx_to_raw.get(idx, f"?{idx}"))
+        f1_val = per_class_f1[idx]
+        print(f"  class {idx} (raw={raw_label}): F1={f1_val:.4f}")
+    print(f"\n[probe eval] summary written to {paths['summary']}")
 
 
 if __name__ == "__main__":
