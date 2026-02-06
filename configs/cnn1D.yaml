@@ -18,7 +18,6 @@ cnn1d:
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
   type: mae                # mae | supervised
-  num_classes: 18          # only used if type=supervised
   # MAE-specific (masked_1d)
   loss: mse
   skip_missing: true

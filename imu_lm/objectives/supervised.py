@@ -13,13 +13,14 @@ Contract:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from imu_lm.utils.metrics import compute_metrics
+from imu_lm.utils.training import remap_labels
 
 
 def forward_loss(
@@ -27,22 +28,34 @@ def forward_loss(
     encoder: nn.Module,
     head: nn.Module,
     cfg: Any,
+    raw_to_idx: Optional[Dict[int, int]] = None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute supervised classification loss with comprehensive metrics.
     
-    Uses centralized compute_metrics from utils/metrics.py (same as probe).
-    
     Args:
-        batch: (x, y) where x is input tensor, y is class labels [B]
+        batch: (x, y) where x is input tensor, y is raw class labels [B]
         encoder: Any encoder that maps input → [B, embed_dim]
         head: Classification head that maps [B, embed_dim] → [B, num_classes]
         cfg: Config dict with objective.* params
+        raw_to_idx: Mapping from raw dataset labels to contiguous [0, N) indices.
+            If None, assumes labels are already contiguous.
         
     Returns:
         loss: Scalar cross-entropy loss
-        logs: Dict with loss and metrics from compute_metrics
+        logs: Dict with loss and metrics
     """
     x, y = batch
+    
+    # Remap raw labels to contiguous indices
+    if raw_to_idx is not None:
+        y = remap_labels(y, raw_to_idx)
+    
+    # Drop samples with unmapped labels (-100)
+    valid = y >= 0
+    if not valid.any():
+        loss = torch.tensor(0.0, device=x.device, requires_grad=True)
+        return loss, {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0, "macro_prec": 0.0, "macro_rec": 0.0}
+    x, y = x[valid], y[valid]
     
     # Encode input → embedding
     z = encoder(x)  # [B, embed_dim]

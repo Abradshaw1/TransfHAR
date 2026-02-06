@@ -35,21 +35,25 @@ def load_encoder(run_dir: str, map_location=None):
     return encoder
 
 
-def save_supervised_model(encoder: torch.nn.Module, head: torch.nn.Module, meta: Dict[str, Any], run_dir: str):
-    """Save encoder + classification head for fully supervised training.
-    
-    Unlike MAE which discards the decoder, supervised training saves both
-    encoder and head since this is the complete trained classifier.
-    """
+def save_supervised_model(
+    encoder: torch.nn.Module,
+    head: torch.nn.Module,
+    meta: Dict[str, Any],
+    run_dir: str,
+    label_map: Dict[str, Any] | None = None,
+):
+    """Save encoder + classification head + label_map for fully supervised training."""
     paths = artifact_paths(run_dir)
-    # Save encoder
     torch.save(encoder, paths["encoder"])
-    # Save head separately
     head_path = os.path.join(paths["dir"], "head.pt")
     torch.save(head, head_path)
-    # Save combined model dict for easy loading
     model_path = os.path.join(paths["dir"], "model.pt")
     torch.save({"encoder": encoder, "head": head}, model_path)
+    if label_map is not None:
+        label_map_path = os.path.join(paths["dir"], "label_map.json")
+        with open(label_map_path, "w") as f:
+            json.dump({k: v for k, v in label_map.items() if k != "unknown_id" or v is not None}, f, indent=2)
+        meta["label_map_path"] = "label_map.json"
     with open(paths["meta"], "w") as f:
         json.dump(meta, f, indent=2)
     print(f"[artifact] saved encoder to {paths['encoder']}")

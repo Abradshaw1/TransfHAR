@@ -31,6 +31,7 @@ from imu_lm.probe.io import (
 from imu_lm.runtime_consistency import artifacts
 from imu_lm.utils.helpers import cfg_get
 from imu_lm.utils.metrics import compute_metrics, format_metrics_txt
+from imu_lm.utils.training import build_label_map
 
 
 def _load_encoder_meta(run_dir: str) -> Dict[str, Any]:
@@ -41,35 +42,6 @@ def _load_encoder_meta(run_dir: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def _build_label_map(loader: DataLoader, labels_cfg: Dict[str, Any], logger: logging.Logger) -> Dict[str, Any]:
-    unknown_id = labels_cfg.get("unknown_id", None)
-    drop_unknown = bool(labels_cfg.get("drop_unknown", True))
-    min_count = int(labels_cfg.get("min_count_per_class", 0))
-
-    counts: Dict[int, int] = {}
-    seen_batches = 0
-    for batch in loader:
-        seen_batches += 1
-        if batch is None:
-            continue
-        _, y = batch
-        for v in y.tolist():
-            v_int = int(v)
-            if drop_unknown and unknown_id is not None and v_int == int(unknown_id):
-                continue
-            counts[v_int] = counts.get(v_int, 0) + 1
-        if seen_batches % 100 == 0:
-            logger.info("[probe] label_map progress: batches=%d classes=%d", seen_batches, len(counts))
-
-    kept = [k for k, c in counts.items() if c >= min_count]
-    if not drop_unknown and unknown_id is not None and int(unknown_id) not in kept:
-        kept.append(int(unknown_id))
-    kept = sorted(kept)
-
-    raw_to_idx = {int(r): i for i, r in enumerate(kept)}
-    idx_to_raw = {i: int(r) for i, r in enumerate(kept)}
-    logger.info("[probe] label_map built: classes=%d from %d batches", len(raw_to_idx), seen_batches)
-    return {"raw_to_idx": raw_to_idx, "idx_to_raw": idx_to_raw, "unknown_id": unknown_id}
 
 
 def _build_label_names(cfg: Any, logger: logging.Logger) -> Dict[int, str]:
@@ -265,7 +237,15 @@ def main(cfg: Any, run_dir: str):
         len(test_loader.dataset) if test_loader else 0,
     )
 
-    label_map = _build_label_map(train_loader, labels_cfg, logger)
+    unknown_id = labels_cfg.get("unknown_id", None)
+    drop_unknown = bool(labels_cfg.get("drop_unknown", True))
+    min_count = int(labels_cfg.get("min_count_per_class", 0))
+    label_map = build_label_map(
+        train_loader, cfg,
+        unknown_id=unknown_id,
+        drop_unknown=drop_unknown,
+        min_count=min_count,
+    )
     
     # Build activity name mapping (dataset_activity_id → string name)
     raw_label_names = _build_label_names(cfg, logger)

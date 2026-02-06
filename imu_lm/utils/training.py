@@ -110,6 +110,55 @@ def build_scheduler(optimizer, cfg: Any):
     return LambdaLR(optimizer, lr_lambda)
 
 
+def build_label_map(
+    loader,
+    cfg: Any,
+    unknown_id: Optional[int] = None,
+    drop_unknown: bool = True,
+    min_count: int = 0,
+) -> Dict[str, Any]:
+    """Scan a DataLoader to discover unique labels and build contiguous mapping.
+
+    Shared by supervised training and probe.
+
+    Returns:
+        Dict with keys: raw_to_idx, idx_to_raw, num_classes, unknown_id
+    """
+    counts: Dict[int, int] = {}
+    for batch in loader:
+        if batch is None:
+            continue
+        _, y = batch
+        for v in y.tolist():
+            v_int = int(v)
+            if drop_unknown and unknown_id is not None and v_int == int(unknown_id):
+                continue
+            counts[v_int] = counts.get(v_int, 0) + 1
+
+    kept = [k for k, c in counts.items() if c >= min_count]
+    if not drop_unknown and unknown_id is not None and int(unknown_id) not in kept:
+        kept.append(int(unknown_id))
+    kept = sorted(kept)
+
+    raw_to_idx = {int(r): i for i, r in enumerate(kept)}
+    idx_to_raw = {i: int(r) for i, r in enumerate(kept)}
+    logger.info("build_label_map: classes=%d", len(raw_to_idx))
+    return {
+        "raw_to_idx": raw_to_idx,
+        "idx_to_raw": idx_to_raw,
+        "num_classes": len(raw_to_idx),
+        "unknown_id": unknown_id,
+    }
+
+
+def remap_labels(y: torch.Tensor, raw_to_idx: Dict[int, int]) -> torch.Tensor:
+    """Remap raw label tensor to contiguous indices. Non-mapped labels get -100 (ignored by cross_entropy)."""
+    mapped = torch.full_like(y, -100, dtype=torch.long)
+    for raw, idx in raw_to_idx.items():
+        mapped[y == raw] = idx
+    return mapped
+
+
 def load_checkpoint(
     resume_path: str,
     model: nn.Module,

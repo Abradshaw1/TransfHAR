@@ -20,6 +20,7 @@ from imu_lm.data.loaders import make_loaders
 from imu_lm.runtime_consistency import artifacts
 from imu_lm.utils.helpers import deep_update, load_yaml
 from imu_lm.utils.metrics import compute_metrics, format_metrics_txt
+from imu_lm.utils.training import remap_labels
 
 
 def main():
@@ -63,6 +64,17 @@ def main():
             meta = json.load(f)
     logger.info("[sup eval] meta: %s", meta)
 
+    # Load label_map for remapping raw labels → contiguous indices
+    label_map_path = os.path.join(artifacts.artifact_paths(run_dir)["dir"], "label_map.json")
+    raw_to_idx = None
+    if os.path.exists(label_map_path):
+        with open(label_map_path, "r") as f:
+            label_map = json.load(f)
+        raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
+        logger.info("[sup eval] loaded label_map: %d classes", len(raw_to_idx))
+    else:
+        logger.warning("[sup eval] no label_map.json found — assuming labels are already contiguous")
+
     # Build test loader
     loaders = make_loaders(cfg)
     test_loader = loaders.get("test_loader")
@@ -83,6 +95,15 @@ def main():
                 continue
             x, y = batch
             x, y = x.to(device), y.to(device)
+
+            # Remap raw labels to contiguous indices
+            if raw_to_idx is not None:
+                y = remap_labels(y, raw_to_idx)
+            valid = y >= 0
+            if not valid.any():
+                continue
+            x, y = x[valid], y[valid]
+
             z = encoder(x)
             logits = head(z)
             loss = torch.nn.functional.cross_entropy(logits, y)

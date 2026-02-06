@@ -5,7 +5,6 @@ spectrogram:
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
   type: mae                # mae | supervised
-  num_classes: 18          # only used if type=supervised
   # MAE-specific (masked_2d for HuggingFace ViTMAE)
   mask_ratio: 0.75
   norm_pix_loss: false

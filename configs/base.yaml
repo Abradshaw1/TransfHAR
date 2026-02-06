@@ -29,7 +29,7 @@ splits:
   group_key: subject_id        
   shuffle: true
   val_ratio: 0.05               # for non-probe training split only
-  test_ratio: 0.1               # held-out test set (used by supervised eval)
+  test_ratio: 0               # held-out test set (used by supervised eval) set to 0 when running MAE
 
 windowing:
   window_seconds: 2.56

@@ -22,6 +22,7 @@ from imu_lm.utils.training import (
     resolve_resume_path,
     build_optimizer_from_params,
     build_scheduler,
+    build_label_map,
     load_checkpoint,
 )
 
@@ -37,13 +38,15 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     encoder = TSTransformer1DEncoder(cfg)
     
     if objective_type == "supervised":
-        # Supervised: encoder + LinearHead, needs labels
-        num_classes = int(cfg_get(cfg, ["objective", "num_classes"], 10))
+        # Supervised: encoder + LinearHead, auto-discover classes from data
+        loaders = make_loaders(cfg)
+        label_map = build_label_map(loaders["train_loader"], cfg)
+        raw_to_idx = label_map["raw_to_idx"]
+        num_classes = label_map["num_classes"]
         head = LinearHead(encoder.embed_dim, num_classes)
         def objective_fn(batch, model, cfg):
-            return supervised_obj.forward_loss(batch, encoder, head, cfg)
+            return supervised_obj.forward_loss(batch, encoder, head, cfg, raw_to_idx=raw_to_idx)
         all_params = list(encoder.parameters()) + list(head.parameters())
-        loaders = make_loaders(cfg)
     else:
         # MAE: encoder + decoder, self-supervised
         decoder = TSTransformer1DDecoder(
@@ -101,7 +104,7 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     
     if objective_type == "supervised":
         meta["num_classes"] = num_classes
-        save_supervised_model(encoder, head, meta, run_dir)
+        save_supervised_model(encoder, head, meta, run_dir, label_map=label_map)
     else:
         save_encoder(encoder, meta, run_dir)
 
