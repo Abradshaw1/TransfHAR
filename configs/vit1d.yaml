@@ -23,14 +23,15 @@ vit1d:
   max_patches_per_channel: 256  # Max T/patch_size supported
   pooling: "mean"           # mean over non-masked tokens
 
-# Objective config (masked_1d) - works with any 1D encoder/decoder
+# Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
+  type: mae                 # mae | supervised
+  num_classes: 18           # only used if type=supervised
+  # MAE-specific (masked_1d)
   mask_random: 0.80         # 80% random masking
   mask_temporal: 0.50       # 50% temporal block masking  
   mask_signal: 0.50         # 50% channel/signal masking
   skip_missing: true        # Don't backprop on already-missing values
-
-
 
 trainer:
   seed: 42

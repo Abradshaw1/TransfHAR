@@ -15,8 +15,11 @@ cnn1d:
     decoder_hidden_size: 256
     decoder_num_layers: 4
 
-# 1D Masked Autoencoder objective (LSM-2 style)
+# Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
+  type: mae                # mae | supervised
+  num_classes: 18          # only used if type=supervised
+  # MAE-specific (masked_1d)
   loss: mse
   skip_missing: true
   mask_random: 0.8

@@ -5,8 +5,8 @@ Single source of truth for model loading:
 - warm_start=false: random init with YAML config overrides
 
 Exposes:
-- forward_features(x): pooled embedding [B, D] for probes
-- mae_model: full HF model for MAE pretraining loss
+- forward(x) / forward_features(x): pooled embedding [B, D] for probes/supervised
+- mae_model: full HF model for MAE pretraining (handles masking internally)
 """
 
 from __future__ import annotations
@@ -88,13 +88,6 @@ class ViTEncoder(nn.Module):
         if x.dim() != 4:
             raise ValueError(f"Expected x with shape [B,3,H,W], got {x.shape}")
         return resize_bilinear(x.float(), self.resize_hw)
-
-    def forward_tokens(self, x: torch.Tensor) -> torch.Tensor:
-        """Patch tokens [B, N, D] without CLS for MAE-style objectives."""
-        x_img = self._prepare(x)
-        out = self.mae_model.vit(pixel_values=x_img)
-        tokens = out.last_hidden_state  # [B, 1+N, D]
-        return tokens[:, 1:, :]  # drop CLS
 
     def forward_features(self, x: torch.Tensor) -> torch.Tensor:
         """Pooled embedding [B, D] for probes."""

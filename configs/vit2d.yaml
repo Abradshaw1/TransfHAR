@@ -2,7 +2,11 @@
 spectrogram:
   enabled: true
 
+# Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
+  type: mae                # mae | supervised
+  num_classes: 18          # only used if type=supervised
+  # MAE-specific (masked_2d for HuggingFace ViTMAE)
   mask_ratio: 0.75
   norm_pix_loss: false
 
@@ -41,11 +45,21 @@ trainer:
   max_steps: 0
   grad_clip_norm: 1.0
   grad_accum_steps: 1
-  optim: adamw
-  lr: 0.00015
-  weight_decay: 0.05
-  betas: [0.9, 0.95]
-  eps: 1.0e-8
-  sched: cosine
-  warmup_steps: 100
+
+  optim:
+    name: adamw
+    lr: 0.001
+    weight_decay: 0.0001
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+
+  sched:
+    name: cosine
+    warmup_steps: 100
+
+  early_stopping:
+    enabled: true
+    monitor: val_loss
+    patience: 5
+
 

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Tuple
 import logging
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -60,6 +61,31 @@ def _build_label_map(loader: DataLoader, labels_cfg: Dict[str, Any], logger: log
     idx_to_raw = {i: int(r) for i, r in enumerate(kept)}
     logger.info("[probe] label_map built: classes=%d from %d batches", len(raw_to_idx), seen_batches)
     return {"raw_to_idx": raw_to_idx, "idx_to_raw": idx_to_raw}
+
+
+def _build_label_names(cfg: Any, logger: logging.Logger) -> Dict[int, str]:
+    """Build mapping from dataset_activity_id → string activity name."""
+    parquet_path = cfg_get(cfg, ["paths", "dataset_path"], None)
+    label_col = cfg_get(cfg, ["data", "label_column"], "dataset_activity_id")
+    name_col = cfg_get(cfg, ["data", "label_name_column"], None)
+    
+    if not parquet_path or not name_col:
+        logger.info("[probe] no label_name_column configured, using numeric IDs")
+        return {}
+    
+    if not os.path.exists(parquet_path):
+        logger.warning("[probe] parquet file not found: %s", parquet_path)
+        return {}
+    
+    try:
+        df = pd.read_parquet(parquet_path, columns=[label_col, name_col])
+        unique_pairs = df.drop_duplicates(subset=[label_col])
+        label_names = {int(row[label_col]): str(row[name_col]) for _, row in unique_pairs.iterrows()}
+        logger.info("[probe] built label_names mapping: %d activities", len(label_names))
+        return label_names
+    except Exception as e:
+        logger.warning("[probe] failed to build label_names: %s", e)
+        return {}
 
 
 def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_class: int, seed: int) -> DataLoader:
