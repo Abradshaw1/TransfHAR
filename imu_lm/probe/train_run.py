@@ -42,8 +42,6 @@ def _load_encoder_meta(run_dir: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-
-
 def _build_label_names(cfg: Any, logger: logging.Logger) -> Dict[int, str]:
     """Build mapping from dataset_activity_id → string activity name."""
     parquet_path = cfg_get(cfg, ["paths", "dataset_path"], None)

@@ -33,11 +33,15 @@ pip install -r requirements.txt
 > If using GPU, install the matching CUDA-enabled PyTorch wheels before the rest.
 
 ### 2) Data
-Place the unified IMU parquet outside version control, e.g.:
-```
-/data/imu_ssl/unified_dataset.parquet
-```
-Set paths in `configs/base.yaml` (e.g., `paths.dataset_path`, `paths.runs_root`) and specify probe dataset in `configs/probe.yaml`. Schema expectation: continuous_stream v3 (50 Hz, FLU axes, acc m/s², gyro rad/s, required keys for dataset/subject/session/timestamp/labels).
+1. Download `IMULM_master_dataset.parquet` from the shared Google Drive folder:
+   **https://drive.google.com/drive/u/0/folders/1Tfsgh4eUo_ZMPHbfZG2i6Yo2VbddWezf**
+2. Place it in the data drive directory:
+   ```
+   imu_lm/data/data_drive/IMULM_master_dataset.parquet
+   ```
+3. Set `paths.dataset_path` in `configs/base.yaml` to point to that file (and update `paths.runs_root` if needed). Specify the probe dataset in `configs/probe.yaml`.
+
+Schema expectation: continuous_stream v3 (50 Hz, FLU axes, acc m/s², gyro rad/s, required keys for dataset/subject/session/timestamp/labels).
 
 ### 3) Configure an experiment
 Pick backbone/objective/encoding via backbone config (`cnn1D.yaml`, `tstransformer1d.yaml`, `vit1d.yaml`, or `vit2d.yaml`) plus `base.yaml`. Use `configs/probe.yaml` for probe settings (shots, metric, split policy).
