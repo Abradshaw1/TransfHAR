@@ -228,7 +228,8 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
         add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
         add("probe_test", splits["probe_test_keys"], eval_batch_size, False)
     else:
-        add("train", splits["train_keys"], batch_size, False)
+        add("train", splits["train_keys"], batch_size, True)
         add("val", splits["val_keys"], eval_batch_size, False)
+        add("test", splits["test_keys"], eval_batch_size, False)
 
     return loaders

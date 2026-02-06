@@ -3,14 +3,14 @@
 Self-supervised pretraining and frozen linear probing for IMU-based activity recognition. Everything is built to measure **representation quality under dataset shift**—encoders are pretrained once (Stage A) and **frozen** during evaluation (Stage B).
 
 ## What this repo is for
-- Pretrain IMU encoders (FastViT/ViT on spectrograms; TS-Transformer/CNN on raw) with SSL or supervised objectives while holding out the probe dataset.
+- Pretrain IMU encoders (ViT2D on spectrograms; ViT1D/TS-Transformer1D/CNN1D on raw) with SSL or supervised objectives while holding out the probe dataset.
 - Freeze the encoder and train a linear classifier on the probe dataset (e.g., SAMoSA or other target splits).
 - Report standardized metrics (balanced accuracy, macro-F1, per-class F1, confusion) and keep everything reproducible in `runs/`.
 
 ## Repository layout
-- `configs/` — `base.yaml` (paths/logging/windowing/loader/optim), `probe.yaml`, backbone configs (`cnn.yaml`, `tstransformer.yaml`, `vit.yaml`, `fastvit.yaml`).
+- `configs/` — `base.yaml` (paths/logging/windowing/loader/optim), `probe.yaml`, backbone configs (`cnn1D.yaml`, `tstransformer1d.yaml`, `vit1d.yaml`, `vit2d.yaml`).
 - `scripts/` — orchestration entrypoints:
-  - `print_config.py` (inspect merged config)
+  - `print_config.py` (placeholder/WIP)
   - `run_pretrain.py` (Stage A)
   - `run_probe_train.py` (Stage B training)
   - `run_probe_eval.py` (Stage B eval)
@@ -37,14 +37,14 @@ Place the unified IMU parquet outside version control, e.g.:
 ```
 /data/imu_ssl/unified_dataset.parquet
 ```
-Set paths in `configs/base.yaml` (e.g., `paths.data_root`, `paths.runs_root`) and specify probe dataset in `configs/probe.yaml`. Schema expectation: continuous_stream v3 (50 Hz, FLU axes, acc m/s², gyro rad/s, required keys for dataset/subject/session/timestamp/labels).
+Set paths in `configs/base.yaml` (e.g., `paths.dataset_path`, `paths.runs_root`) and specify probe dataset in `configs/probe.yaml`. Schema expectation: continuous_stream v3 (50 Hz, FLU axes, acc m/s², gyro rad/s, required keys for dataset/subject/session/timestamp/labels).
 
 ### 3) Configure an experiment
-Pick backbone/objective/encoding via backbone config (`cnn.yaml`, `tstransformer.yaml`, `vit.yaml`, `fastvit.yaml`) plus `base.yaml`. Use `configs/probe.yaml` for probe settings (shots, metric, split policy). Run `scripts/print_config.py` to inspect the merged config.
+Pick backbone/objective/encoding via backbone config (`cnn1D.yaml`, `tstransformer1d.yaml`, `vit1d.yaml`, or `vit2d.yaml`) plus `base.yaml`. Use `configs/probe.yaml` for probe settings (shots, metric, split policy).
 
 ### 4) Pretrain (Stage A)
 ```bash
-python scripts/run_pretrain.py --config configs/base.yaml --model-config configs/vit.yaml
+python scripts/run_pretrain.py --config configs/base.yaml --model-config configs/vit2d.yaml --run-name <run_name>
 ```
 Writes logs/checkpoints/artifacts under `runs/<run_name>/`.
 

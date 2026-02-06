@@ -4,7 +4,7 @@ Architecture-agnostic: works with any encoder that outputs [B, embed_dim].
 All current encoders (CNN1D, ViT1D, TSTransformer1D, ViT2D) handle pooling
 internally, so this objective just needs encoder output → linear head → loss.
 
-Reuses LinearHead from probe for the classification head.
+The classification head (LinearHead) is created by each run.py and passed in.
 Reuses compute_metrics from utils/metrics.py for comprehensive evaluation.
 
 Contract:

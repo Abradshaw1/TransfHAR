@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-import torch
-
 from imu_lm.data.loaders import make_loaders
 from imu_lm.data.windowing import compute_T_and_hop
 from imu_lm.models.ViT1D.model import ViT1DEncoder, ViT1DDecoder
@@ -28,20 +26,6 @@ from imu_lm.utils.training import (
 )
 
 
-def _make_mae_objective_fn(encoder, decoder, cfg):
-    """Wrap masked_1d.forward_loss for MAE objective."""
-    def objective_step(batch, model, cfg):
-        return masked_1d_obj.forward_loss(batch, encoder, decoder, cfg)
-    return objective_step
-
-
-def _make_supervised_objective_fn(encoder, head, cfg):
-    """Wrap supervised.forward_loss for supervised objective."""
-    def objective_step(batch, model, cfg):
-        return supervised_obj.forward_loss(batch, encoder, head, cfg)
-    return objective_step
-
-
 def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     # Compute input temporal dimension from windowing config
     T, _ = compute_T_and_hop(cfg)
@@ -56,7 +40,8 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
         # Supervised: encoder + LinearHead, needs labels
         num_classes = int(cfg_get(cfg, ["objective", "num_classes"], 10))
         head = LinearHead(encoder.embed_dim, num_classes)
-        objective_fn = _make_supervised_objective_fn(encoder, head, cfg)
+        def objective_fn(batch, model, cfg):
+            return supervised_obj.forward_loss(batch, encoder, head, cfg)
         all_params = list(encoder.parameters()) + list(head.parameters())
         loaders = make_loaders(cfg)
     else:
@@ -67,7 +52,8 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
             target_T=T,
             cfg=cfg,
         )
-        objective_fn = _make_mae_objective_fn(encoder, decoder, cfg)
+        def objective_fn(batch, model, cfg):
+            return masked_1d_obj.forward_loss(batch, encoder, decoder, cfg)
         all_params = list(encoder.parameters()) + list(decoder.parameters())
         loaders = make_loaders(cfg)
     
@@ -77,12 +63,18 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     optimizer = build_optimizer_from_params(all_params, cfg)
     scheduler = build_scheduler(optimizer, cfg)
     
+    # Build extra_modules dict for checkpointing head or decoder
+    if objective_type == "supervised":
+        extra_modules = {"head": head}
+    else:
+        extra_modules = {"decoder": decoder}
+    
     # Load checkpoint if resuming
     resume_path = resolve_resume_path(run_dir, resume_ckpt)
-    start_step = load_checkpoint(resume_path, encoder, optimizer, scheduler)
+    start_step = load_checkpoint(resume_path, encoder, optimizer, scheduler, extra_modules=extra_modules)
     
     trainer = Trainer(cfg, run_dir)
-    trainer.fit(encoder, objective_fn, train_loader, val_loader, optimizer, scheduler, start_step=start_step)
+    trainer.fit(encoder, objective_fn, train_loader, val_loader, optimizer, scheduler, start_step=start_step, extra_modules=extra_modules)
     
     # Save artifacts
     data_cfg = cfg_get(cfg, ["data"], {}) or {}

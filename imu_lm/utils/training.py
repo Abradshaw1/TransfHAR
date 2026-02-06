@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Any, Optional, List
+import logging
+from typing import Any, Dict, Optional, List
 
 import torch
 import torch.nn as nn
@@ -15,6 +16,8 @@ from torch.optim import Adam, AdamW
 from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 
 from imu_lm.utils.helpers import cfg_get
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_resume_path(run_dir: str, resume: Optional[str]) -> Optional[str]:
@@ -112,6 +115,7 @@ def load_checkpoint(
     model: nn.Module,
     optimizer: Optional[Any] = None,
     scheduler: Optional[Any] = None,
+    extra_modules: Optional[Dict[str, nn.Module]] = None,
 ) -> int:
     """Load checkpoint and return start step.
     
@@ -120,6 +124,8 @@ def load_checkpoint(
         model: Model to load state into
         optimizer: Optional optimizer to restore
         scheduler: Optional scheduler to restore
+        extra_modules: Optional dict of named modules (e.g. head, decoder)
+            whose state was saved alongside the model
         
     Returns:
         Start step from checkpoint (0 if not found)
@@ -132,16 +138,24 @@ def load_checkpoint(
     if "model" in state:
         model.load_state_dict(state["model"], strict=False)
     
+    if extra_modules:
+        for name, mod in extra_modules.items():
+            if name in state:
+                try:
+                    mod.load_state_dict(state[name], strict=False)
+                except Exception as e:
+                    logger.warning("checkpoint extra module load failed: %s (%s)", name, e)
+    
     if optimizer is not None and state.get("optimizer"):
         try:
             optimizer.load_state_dict(state["optimizer"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("checkpoint optimizer load failed: %s", e)
     
     if scheduler is not None and state.get("scheduler"):
         try:
             scheduler.load_state_dict(state["scheduler"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("checkpoint scheduler load failed: %s", e)
     
     return int(state.get("step", 0))

@@ -3,7 +3,9 @@ torchvision
 numpy
 pandas
 pyarrow
+scipy
 timm
+transformers
 pyyaml
 scikit-learn
 tqdm

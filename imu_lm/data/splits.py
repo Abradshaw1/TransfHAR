@@ -202,6 +202,7 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
     group_key = splits_cfg.get("group_key") or session_col
     shuffle = bool(splits_cfg.get("shuffle", False))
     val_ratio = float(splits_cfg.get("val_ratio", 0.0))
+    test_ratio = float(splits_cfg.get("test_ratio", 0.0))
     probe_ratios = splits_cfg.get("probe_ratios", [0.7, 0.1, 0.2])
     seed = int(splits_cfg.get("seed", 0))
     probe_stratify = bool(splits_cfg.get("probe_stratify_by_label", False))
@@ -218,15 +219,18 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
             rng.shuffle(groups)
         return groups
 
-    # Non-probe splits (train/val)
+    # Non-probe splits (train/val/test)
     non_probe_df = session_index[session_index[dataset_col] != probe_dataset]
     non_probe_groups = group_sessions(non_probe_df)
     val_count = int(round(len(non_probe_groups) * val_ratio))
-    val_groups = non_probe_groups[:val_count]
-    train_groups = non_probe_groups[val_count:]
+    test_count = int(round(len(non_probe_groups) * test_ratio))
+    test_groups = non_probe_groups[:test_count]
+    val_groups = non_probe_groups[test_count:test_count + val_count]
+    train_groups = non_probe_groups[test_count + val_count:]
 
     train_df = pd.concat(train_groups, ignore_index=True) if train_groups else pd.DataFrame(columns=session_index.columns)
     val_df = pd.concat(val_groups, ignore_index=True) if val_groups else pd.DataFrame(columns=session_index.columns)
+    test_df = pd.concat(test_groups, ignore_index=True) if test_groups else pd.DataFrame(columns=session_index.columns)
 
     # Probe splits
     probe_df = session_index[session_index[dataset_col] == probe_dataset]
@@ -321,6 +325,7 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
     result = {
         "train_keys": _to_session_keys(train_df, dataset_col, subject_col, session_col),
         "val_keys": _to_session_keys(val_df, dataset_col, subject_col, session_col),
+        "test_keys": _to_session_keys(test_df, dataset_col, subject_col, session_col),
         "probe_train_keys": _to_session_keys(pr_train_df, dataset_col, subject_col, session_col),
         "probe_val_keys": _to_session_keys(pr_val_df, dataset_col, subject_col, session_col),
         "probe_test_keys": _to_session_keys(pr_test_df, dataset_col, subject_col, session_col),
@@ -348,6 +353,7 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
 
     log_split("train", train_df)
     log_split("val", val_df)
+    log_split("test", test_df)
     log_split("probe_train", pr_train_df)
     log_split("probe_val", pr_val_df)
     log_split("probe_test", pr_test_df)

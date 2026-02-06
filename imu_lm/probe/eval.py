@@ -9,16 +9,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from imu_lm.probe.io import select_mapped_batch
 from imu_lm.utils.metrics import compute_metrics
 
 logger = logging.getLogger(__name__)
-
-
-def _remap_labels(y: torch.Tensor, raw_to_idx: Dict[int, int]) -> torch.Tensor:
-    mapped = [raw_to_idx[int(v)] for v in y.tolist() if int(v) in raw_to_idx]
-    if len(mapped) == 0:
-        return torch.empty(0, dtype=torch.long, device=y.device)
-    return torch.tensor(mapped, dtype=torch.long, device=y.device)
 
 
 def eval_head(
@@ -31,6 +25,7 @@ def eval_head(
     """Evaluate encoder+head on a loader using stored label mapping."""
 
     raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
+    unknown_id = label_map.get("unknown_id")
     label_names = label_map.get("label_names", None)
 
     encoder.eval()
@@ -47,13 +42,9 @@ def eval_head(
             if batch is None:
                 continue
             x, y_raw = batch
-            y_raw = y_raw.to(device)
-            idxs = [i for i, v in enumerate(y_raw.tolist()) if int(v) in raw_to_idx]
-            if len(idxs) == 0:
+            x, y = select_mapped_batch(x, y_raw, raw_to_idx, device, unknown_raw_id=unknown_id)
+            if x is None:
                 continue
-            y = torch.tensor([raw_to_idx[int(y_raw[i])] for i in idxs], dtype=torch.long, device=device)
-
-            x = torch.index_select(x.to(device), 0, torch.tensor(idxs, device=device))
             with torch.no_grad():
                 feats = encoder(x)
             logits = head(feats)

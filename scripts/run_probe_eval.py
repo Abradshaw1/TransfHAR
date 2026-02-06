@@ -6,7 +6,6 @@ import argparse
 import json
 import logging
 import os
-from typing import Any, Dict
 
 import torch
 
@@ -65,7 +64,9 @@ def main():
     for p in encoder.parameters():
         p.requires_grad = False
 
-    probe_dataset = cfg.get("data", {}).get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
+    probe_dataset = cfg.get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
+    if probe_dataset is None and isinstance(cfg, dict):
+        probe_dataset = cfg.get("data", {}).get("splits", {}).get("probe_dataset", None)
     logger.info("[probe eval] building data loaders (probe_dataset=%s)...", probe_dataset)
     loaders = make_loaders(cfg, dataset_filter=[probe_dataset] if probe_dataset else None)
     logger.info("[probe eval] data loaders ready")
@@ -115,17 +116,15 @@ def main():
 
     # Print summary metrics
     labels = metrics.get("labels", [])
-    per_class_f1 = metrics.get("per_class_f1", {})
-    idx_to_raw = label_map.get("idx_to_raw", {})
+    per_class = metrics.get("per_class", {})
     
     print(f"\n[probe eval] ===== TEST RESULTS =====")
     print(f"[probe eval] classes evaluated: {len(labels)} (expected: {num_classes})")
     print(f"[probe eval] bal_acc={metrics.get('bal_acc', 0):.4f}  macro_f1={metrics.get('macro_f1', 0):.4f}")
     print(f"\n[probe eval] Per-class F1:")
-    for idx in sorted(per_class_f1.keys()):
-        raw_label = idx_to_raw.get(str(idx), idx_to_raw.get(idx, f"?{idx}"))
-        f1_val = per_class_f1[idx]
-        print(f"  class {idx} (raw={raw_label}): F1={f1_val:.4f}")
+    for lbl, class_metrics in per_class.items():
+        f1_val = class_metrics.get("f1", 0.0) if isinstance(class_metrics, dict) else 0.0
+        print(f"  class {lbl}: F1={f1_val:.4f}")
     print(f"\n[probe eval] summary written to {paths['summary']}")
 
 

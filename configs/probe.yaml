@@ -9,7 +9,7 @@ probe:
   drop_unknown: false
   min_count_per_class: 0
   fewshot_enabled: false
-  fewshot_shots_per_class: 5
+  fewshot_shots_per_class: 5 # 1 shot = 1 window of data
   fewshot_seed: 0
   num_epochs: 100
   batch_size: 256

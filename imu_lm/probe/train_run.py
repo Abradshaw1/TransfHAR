@@ -20,7 +20,14 @@ from torch.utils.data import DataLoader, Subset
 from imu_lm.data.loaders import make_loaders
 from imu_lm.probe.eval import eval_head
 from imu_lm.probe.head import LinearHead
-from imu_lm.probe.io import load_checkpoint, resolve_probe_dir, save_checkpoint, write_metrics_line, write_summary
+from imu_lm.probe.io import (
+    load_checkpoint,
+    resolve_probe_dir,
+    save_checkpoint,
+    select_mapped_batch,
+    write_metrics_line,
+    write_summary,
+)
 from imu_lm.runtime_consistency import artifacts
 from imu_lm.utils.helpers import cfg_get
 from imu_lm.utils.metrics import compute_metrics, format_metrics_txt
@@ -55,12 +62,14 @@ def _build_label_map(loader: DataLoader, labels_cfg: Dict[str, Any], logger: log
             logger.info("[probe] label_map progress: batches=%d classes=%d", seen_batches, len(counts))
 
     kept = [k for k, c in counts.items() if c >= min_count]
+    if not drop_unknown and unknown_id is not None and int(unknown_id) not in kept:
+        kept.append(int(unknown_id))
     kept = sorted(kept)
 
     raw_to_idx = {int(r): i for i, r in enumerate(kept)}
     idx_to_raw = {i: int(r) for i, r in enumerate(kept)}
     logger.info("[probe] label_map built: classes=%d from %d batches", len(raw_to_idx), seen_batches)
-    return {"raw_to_idx": raw_to_idx, "idx_to_raw": idx_to_raw}
+    return {"raw_to_idx": raw_to_idx, "idx_to_raw": idx_to_raw, "unknown_id": unknown_id}
 
 
 def _build_label_names(cfg: Any, logger: logging.Logger) -> Dict[int, str]:
@@ -131,18 +140,15 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
     y_pred = []
 
     raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
+    unknown_id = label_map.get("unknown_id")
 
     for batch_idx, batch in enumerate(train_loader, 1):
         if batch is None:
             continue
         x, y_raw = batch
-        y_raw = y_raw.to(device)
-        idxs = [i for i, v in enumerate(y_raw.tolist()) if int(v) in raw_to_idx]
-        if len(idxs) == 0:
+        x, y = select_mapped_batch(x, y_raw, raw_to_idx, device, unknown_raw_id=unknown_id)
+        if x is None:
             continue
-        y = torch.tensor([raw_to_idx[int(y_raw[i])] for i in idxs], dtype=torch.long, device=device)
-
-        x = torch.index_select(x.to(device), 0, torch.tensor(idxs, device=device))
         optimizer.zero_grad(set_to_none=True)
         with autocast("cuda", enabled=use_amp):
             with torch.no_grad():
@@ -203,9 +209,10 @@ def main(cfg: Any, run_dir: str):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     probe_cfg = cfg.get("probe", {}) if isinstance(cfg, dict) else getattr(cfg, "probe", {})
+    unknown_id = probe_cfg.get("unknown_id", cfg_get(cfg, ["data", "unknown_label_id"], None))
     # Flattened probe config: labels/fewshot/train fields are now directly under probe
     labels_cfg = {
-        "unknown_id": probe_cfg.get("unknown_id"),
+        "unknown_id": unknown_id,
         "drop_unknown": probe_cfg.get("drop_unknown", True),
         "min_count_per_class": probe_cfg.get("min_count_per_class", 0),
     }
@@ -384,4 +391,3 @@ def main(cfg: Any, run_dir: str):
     }
     write_summary(paths["summary"], summary)
     logger.info("[probe] summary written to %s", paths["summary"])
-

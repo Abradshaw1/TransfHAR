@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-import time
 from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import random
 import torch
 from torch.cuda.amp import GradScaler, autocast
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from imu_lm.utils.helpers import cfg_get
 
@@ -41,6 +41,8 @@ class Trainer:
         self.ckpt_every = int(cfg_get(cfg, ["logging", "ckpt_every_steps"], 1000))
         self.max_steps = int(cfg_get(cfg, ["trainer", "max_steps"], 100000))
         self.use_amp = bool(cfg_get(cfg, ["trainer", "amp"], False))
+        self.grad_clip_norm = float(cfg_get(cfg, ["trainer", "grad_clip_norm"], 0.0))
+        self.grad_accum_steps = max(1, int(cfg_get(cfg, ["trainer", "grad_accum_steps"], 1)))
 
         # Early stopping config
         es_cfg = cfg_get(cfg, ["trainer", "early_stopping"], {}) or {}
@@ -59,11 +61,17 @@ class Trainer:
         optimizer: Optional[torch.optim.Optimizer] = None,
         scheduler=None,
         start_step: int = 0,
+        extra_modules: Optional[Dict[str, torch.nn.Module]] = None,
     ):
         if optimizer is None:
             raise ValueError("Trainer.fit requires an optimizer; got None")
         model.to(self.device)
+        self._extra_modules = extra_modules or {}
+        for name, mod in self._extra_modules.items():
+            mod.to(self.device)
+        self._all_params = list(model.parameters()) + [p for m in self._extra_modules.values() for p in m.parameters()]
         scaler = GradScaler(enabled=self.use_amp)
+        optimizer.zero_grad(set_to_none=True)
 
         step = int(start_step)
         metrics_f = open(self.metrics_path, "a", buffering=1)
@@ -74,22 +82,33 @@ class Trainer:
                     continue
                 step += 1
                 model.train()
+                for mod in self._extra_modules.values():
+                    mod.train()
 
                 batch = self._to_device(batch)
                 with autocast(enabled=self.use_amp):
                     loss, logs = objective_step(batch, model, self.cfg)
+                    if self.grad_accum_steps > 1:
+                        loss = loss / self.grad_accum_steps
 
-                optimizer.zero_grad(set_to_none=True)
                 if self.use_amp:
                     scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
                 else:
                     loss.backward()
-                    optimizer.step()
 
-                if scheduler is not None:
-                    scheduler.step()
+                if step % self.grad_accum_steps == 0:
+                    if self.use_amp:
+                        scaler.unscale_(optimizer)
+                    if self.grad_clip_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(self._all_params, self.grad_clip_norm)
+                    if self.use_amp:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    if scheduler is not None and not isinstance(scheduler, ReduceLROnPlateau):
+                        scheduler.step()
 
                 if step % self.log_every == 0:
                     lr = self._get_lr(optimizer)
@@ -98,7 +117,7 @@ class Trainer:
                     print(line)
 
                 if step % self.ckpt_every == 0:
-                    self._save_ckpt(model, optimizer, step)
+                    self._save_ckpt(model, optimizer, scheduler, step)
 
                 if step >= self.max_steps:
                     break
@@ -107,13 +126,15 @@ class Trainer:
             if val_loader is not None:
                 print(f"[train] eval at step {step}")
                 val_loss = self._eval(val_loader, model, objective_step, step, metrics_f)
+                if scheduler is not None and isinstance(scheduler, ReduceLROnPlateau) and val_loss is not None:
+                    scheduler.step(val_loss)
                 
                 # Early stopping check
                 if self.early_stopping_enabled and val_loss is not None:
                     if val_loss < self.best_val_loss:
                         self.best_val_loss = val_loss
                         self.epochs_without_improvement = 0
-                        self._save_ckpt(model, optimizer, step, path=self.ckpt_best)
+                        self._save_ckpt(model, optimizer, scheduler, step, path=self.ckpt_best)
                         print(f"[train] new best val_loss={val_loss:.6f}")
                     else:
                         self.epochs_without_improvement += 1
@@ -124,10 +145,12 @@ class Trainer:
 
         metrics_f.close()
         # final checkpoint
-        self._save_ckpt(model, optimizer, step)
+        self._save_ckpt(model, optimizer, scheduler, step)
 
     def _eval(self, val_loader, model, objective_step, step, metrics_f):
         model.eval()
+        for mod in self._extra_modules.values():
+            mod.eval()
         total_loss = 0.0
         count = 0
         with torch.no_grad():
@@ -162,13 +185,16 @@ class Trainer:
                 tokens.append(f"{k}={v}")
         return " ".join(tokens)
 
-    def _save_ckpt(self, model, optimizer, step: int, path: Optional[str] = None):
+    def _save_ckpt(self, model, optimizer, scheduler, step: int, path: Optional[str] = None):
         state = {
             "step": step,
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict() if optimizer else None,
+            "scheduler": scheduler.state_dict() if scheduler is not None else None,
             "cfg": self.cfg,
         }
+        for name, mod in self._extra_modules.items():
+            state[name] = mod.state_dict()
         save_path = path or self.ckpt_latest
         torch.save(state, save_path)
         print(f"[train] saved checkpoint {save_path} (step={step})")
