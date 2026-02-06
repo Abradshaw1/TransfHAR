@@ -95,20 +95,6 @@ class TSTransformer1DEncoder(nn.Module):
         
         # Output normalization
         self.norm = nn.LayerNorm(self.d_model)
-        
-        self._init_weights()
-    
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.trunc_normal_(m.weight, std=0.02)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.LayerNorm):
-                nn.init.zeros_(m.bias)
-                nn.init.ones_(m.weight)
-        if self.cls_token is not None:
-            nn.init.trunc_normal_(self.cls_token, std=0.02)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """[B, C, T] → [B, embed_dim]"""
@@ -192,18 +178,8 @@ class TSTransformer1DDecoder(nn.Module):
         # Output projection: d_model → C
         self.output_proj = nn.Linear(self.d_model, out_channels)
         
-        self._init_weights()
-    
-    def _init_weights(self):
+        # Init query tokens
         nn.init.trunc_normal_(self.query_tokens, std=0.02)
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.trunc_normal_(m.weight, std=0.02)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.LayerNorm):
-                nn.init.zeros_(m.bias)
-                nn.init.ones_(m.weight)
     
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """[B, embed_dim] → [B, C, T]"""

@@ -26,8 +26,7 @@ data:
 
 splits:
   seed: 0
-  # probe_dataset is set in probe.yaml
-  group_key: subject_id         # if missing/null -> fallback to session_id
+  group_key: subject_id        
   shuffle: true
   val_ratio: 0.05               # for non-probe training split only
 
@@ -36,22 +35,21 @@ windowing:
   window_hop_ratio: 0.5
   # label assignment for a window
   label_policy: center            # pure | majority | center | unknown_if_mixed
-  majority_threshold: 0.8       # only used if label_policy=majority
-  # optional gap-awareness (does NOT change stride; stride uses index)
+  majority_threshold: 0.8    
   handle_gaps: true
   gap_method: interpolate       # interpolate | split_segment | drop
-  max_gap_ms: 200              # only used when handle_gaps=true
+  max_gap_ms: 200              
   max_gaps_per_session: 100
 
 preprocess:
   impute:
     enabled: true
-    method: linear             # linear | spline
+    method: linear            
     max_missing_frac: 0.2
 
   filter:
     enabled: true
-    type: lowpass             # lowpass | highpass | bandpass
+    type: lowpass             
     order: 4
     low_hz: 0.5
     high_hz: 24
@@ -66,7 +64,7 @@ raw1d_imu:
   enabled: true  # informational flag; raw 1D is always available
 
 spectrogram:
-  enabled: false  # set true for ViT-MAE path
+  enabled: false
   n_fft: 128
   win_length: 64
   hop_length: 2
@@ -75,7 +73,7 @@ spectrogram:
 
 gaussian_noise:
   enabled: false
-  sigma: 0.6            # std in signal units (e.g., m/s^2)
+  sigma: 0.6            
 
 gain_jitter:
   enabled: false
@@ -84,8 +82,8 @@ gain_jitter:
 
 time_warp:
   enabled: false
-  max_warp: 0.05         # ±15% temporal distortion
-  smooth_sigma: 1        # smoothness of warp (higher = smoother)
+  max_warp: 0.05       
+  smooth_sigma: 1       
 
 axis_bias:
   enabled: false

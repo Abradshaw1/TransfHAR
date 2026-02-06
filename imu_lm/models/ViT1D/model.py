@@ -98,42 +98,6 @@ class PositionalEmbedding2D(nn.Module):
         return pos_embed
 
 
-class TransformerEncoderBlock(nn.Module):
-    """Standard transformer encoder block with pre-norm."""
-    
-    def __init__(
-        self,
-        embed_dim: int,
-        num_heads: int,
-        mlp_ratio: float = 4.0,
-        dropout: float = 0.0,
-        attn_dropout: float = 0.0,
-        layer_norm_eps: float = 1e-6,
-    ):
-        super().__init__()
-        self.norm1 = nn.LayerNorm(embed_dim, eps=layer_norm_eps)
-        self.attn = nn.MultiheadAttention(
-            embed_dim, num_heads, dropout=attn_dropout, batch_first=True
-        )
-        self.norm2 = nn.LayerNorm(embed_dim, eps=layer_norm_eps)
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, int(embed_dim * mlp_ratio)),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(int(embed_dim * mlp_ratio), embed_dim),
-            nn.Dropout(dropout),
-        )
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Pre-norm attention
-        x_norm = self.norm1(x)
-        attn_out, _ = self.attn(x_norm, x_norm, x_norm)
-        x = x + attn_out
-        # Pre-norm MLP
-        x = x + self.mlp(self.norm2(x))
-        return x
-
-
 class ViT1DEncoder(nn.Module):
     """ViT-1D Encoder: [B, C, T] → [B, embed_dim].
     
@@ -190,34 +154,19 @@ class ViT1DEncoder(nn.Module):
             embed_dim=self.embed_dim,
         )
         
-        self.encoder_blocks = nn.ModuleList([
-            TransformerEncoderBlock(
-                embed_dim=self.embed_dim,
-                num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
-                dropout=dropout,
-                attn_dropout=attn_dropout,
-                layer_norm_eps=layer_norm_eps,
-            )
-            for _ in range(num_layers)
-        ])
+        # Use PyTorch's built-in transformer encoder
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.embed_dim,
+            nhead=num_heads,
+            dim_feedforward=int(self.embed_dim * mlp_ratio),
+            dropout=dropout,
+            batch_first=True,
+            activation="gelu",
+            norm_first=True,  # pre-norm like ViT
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
-        self.norm = nn.LayerNorm(self.embed_dim, eps=layer_norm_eps)
-        
-        # Initialize weights
-        self._init_weights()
-    
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.trunc_normal_(m.weight, std=0.02)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.LayerNorm):
-                nn.init.ones_(m.weight)
-                nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.Embedding):
-                nn.init.trunc_normal_(m.weight, std=0.02)
+        self.norm = nn.LayerNorm(self.embed_dim)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """[B, C, T] → [B, embed_dim]."""
@@ -232,9 +181,7 @@ class ViT1DEncoder(nn.Module):
         tokens = tokens + pos_embed.unsqueeze(0)
         
         # Transformer encoder
-        for block in self.encoder_blocks:
-            tokens = block(tokens)
-        
+        tokens = self.encoder(tokens)
         tokens = self.norm(tokens)
         
         # Pooling: [B, N, D] → [B, D]
@@ -246,10 +193,6 @@ class ViT1DEncoder(nn.Module):
             out = tokens.mean(dim=1)
         
         return out
-    
-    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
-        """Alias for forward - returns pooled embedding."""
-        return self.forward(x)
 
 
 class ViT1DDecoder(nn.Module):
@@ -293,15 +236,17 @@ class ViT1DDecoder(nn.Module):
         max_channels = int(vit_cfg.get("max_channels", 32))
         self.pos_embed = PositionalEmbedding2D(max_patches, max_channels, hidden_size)
         
-        # Transformer decoder blocks
-        self.decoder_blocks = nn.ModuleList([
-            TransformerEncoderBlock(
-                embed_dim=hidden_size,
-                num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
-            )
-            for _ in range(num_layers)
-        ])
+        # Use PyTorch's built-in transformer encoder (used as decoder here)
+        decoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_size,
+            nhead=num_heads,
+            dim_feedforward=int(hidden_size * mlp_ratio),
+            dropout=0.0,
+            batch_first=True,
+            activation="gelu",
+            norm_first=True,
+        )
+        self.decoder = nn.TransformerEncoder(decoder_layer, num_layers=num_layers)
         
         self.norm = nn.LayerNorm(hidden_size)
         
@@ -326,9 +271,7 @@ class ViT1DDecoder(nn.Module):
         queries = queries + z_proj.unsqueeze(1)
         
         # Transformer decoder
-        for block in self.decoder_blocks:
-            queries = block(queries)
-        
+        queries = self.decoder(queries)
         queries = self.norm(queries)
         
         # Project to patch values: [B, N, hidden_size] → [B, N, patch_size]
