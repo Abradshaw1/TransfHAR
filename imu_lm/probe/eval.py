@@ -31,6 +31,7 @@ def eval_head(
     """Evaluate encoder+head on a loader using stored label mapping."""
 
     raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
+    label_names = label_map.get("label_names", None)
 
     encoder.eval()
     head.eval()
@@ -54,7 +55,7 @@ def eval_head(
 
             x = torch.index_select(x.to(device), 0, torch.tensor(idxs, device=device))
             with torch.no_grad():
-                feats = encoder.forward_features(x)
+                feats = encoder(x)
             logits = head(feats)
             loss = F.cross_entropy(logits, y)
 
@@ -71,7 +72,7 @@ def eval_head(
     if n_samples == 0:
         return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}
 
-    metrics = compute_metrics(y_true, y_pred)
+    metrics = compute_metrics(y_true, y_pred, label_names=label_names)
     acc = float((np.asarray(y_true) == np.asarray(y_pred)).mean())
     metrics.update({"loss": total_loss / n_samples, "acc": acc})
     return metrics

@@ -16,7 +16,7 @@ data:
   session_column: session_id
   time_column: timestamp_ns
   label_column: dataset_activity_id
-  unknown_label_id: 9000
+  label_name_column: dataset_activity_label  # string activity name for metrics display
   sensor_columns: [acc_x, acc_y, acc_z]
   drop_na: false
   num_workers: 8

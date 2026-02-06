@@ -120,7 +120,7 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
         optimizer.zero_grad(set_to_none=True)
         with autocast("cuda", enabled=use_amp):
             with torch.no_grad():
-                feats = encoder.forward_features(x)
+                feats = encoder(x)
             logits = head(feats)
             loss = F.cross_entropy(logits, y)
 
@@ -233,11 +233,22 @@ def main(cfg: Any, run_dir: str):
     )
 
     label_map = _build_label_map(train_loader, labels_cfg, logger)
+    
+    # Build activity name mapping (dataset_activity_id → string name)
+    raw_label_names = _build_label_names(cfg, logger)
+    
     raw_keys = sorted(list(label_map.get("raw_to_idx", {}).keys()))
     preview = raw_keys[:10]
     logger.info(
         "[probe] label_map classes=%d raw_labels_preview=%s", len(raw_keys), preview
     )
+    
+    # Build idx → name mapping for metrics display
+    idx_to_raw = label_map.get("idx_to_raw", {})
+    label_names = {}
+    for idx, raw in idx_to_raw.items():
+        label_names[idx] = raw_label_names.get(raw, str(raw))
+    label_map["label_names"] = label_names
 
     if fewshot_cfg.get("enabled", False):
         shots = int(fewshot_cfg.get("shots_per_class", 5))
@@ -261,7 +272,7 @@ def main(cfg: Any, run_dir: str):
                 continue
             x = x.to(device)
             with torch.no_grad():
-                feats = encoder.forward_features(x)
+                feats = encoder(x)
             embed_dim = feats.shape[-1]
             break
     if embed_dim is None:
