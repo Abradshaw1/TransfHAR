@@ -1,33 +1,29 @@
 # ViT-1D for raw 1D IMU/sensor data (LSM-2 style architecture) 
 vit1d:
-  # Patch embedding
-  patch_size: 16            # 1D patch size (timesteps per patch)
+  patch_size: 4            # 1D patch size (timesteps per patch)
   shared_kernel: true       # Same conv kernel across all channels (LSM-2 style)
-  # Encoder architecture
   encoder:
     hidden_size: 384
     num_hidden_layers: 12
     num_attention_heads: 6
-    intermediate_size: 1536   # 4x hidden_size
+    intermediate_size: 1536   
     hidden_dropout_prob: 0.0
     attention_probs_dropout_prob: 0.0
     layer_norm_eps: 1.0e-6
-# Decoder architecture (lightweight, throwaway after pretraining)
   decoder:
-    hidden_size: 192          # Smaller than encoder
+    hidden_size: 192         
     num_hidden_layers: 4
     num_attention_heads: 4
     intermediate_size: 768
   
-  pos_embed_type: "2d"      # 2D: (time, channel) like LSM-2
-  max_patches_per_channel: 256  # Max T/patch_size supported
-  pooling: "mean"           # mean over non-masked tokens
+  pos_embed_type: "2d"     
+  max_patches_per_channel: 256  
+  pooling: "mean"          
 
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
   type: mae                 # mae | supervised
-  # MAE-specific (masked_1d)
-  mask_random: 0.80         # 80% random masking
+  mask_random: 0.70         # 80% random masking
   mask_temporal: 0.50       # 50% temporal block masking  
   mask_signal: 0.50         # 50% channel/signal masking
   skip_missing: true        # Don't backprop on already-missing values
@@ -35,13 +31,13 @@ objective:
 trainer:
   seed: 42
   amp: true
-  max_steps: 0
+  max_steps: 100000
   grad_clip_norm: 1.0
   grad_accum_steps: 1
 
   optim:
     name: adamw
-    lr: 0.001
+    lr: 0.00015
     weight_decay: 0.0001
     betas: [0.9, 0.95]
     eps: 1.0e-8
@@ -53,4 +49,4 @@ trainer:
   early_stopping:
     enabled: true
     monitor: val_loss
-    patience: 5
+    patience: 50

@@ -11,6 +11,11 @@ from typing import Any, Dict
 from imu_lm.probe import train_run
 from imu_lm.utils.helpers import deep_update, load_yaml
 
+try:
+    import wandb
+except ImportError:
+    wandb = None
+
 
 def _log_resolved(cfg: Dict[str, Any], run_dir: str):
     log_path = os.path.join(run_dir, "logs", "stdout.log")
@@ -39,6 +44,20 @@ def main():
         raise SystemExit(f"Run dir not found: {run_dir}")
 
     _log_resolved(cfg, run_dir)
+
+    # Minimal wandb init for probe
+    if wandb is not None:
+        wb_cfg = cfg.get("wandb", {}) or {}
+        try:
+            wandb.init(
+                project=wb_cfg.get("project", "imu-lm"),
+                entity=wb_cfg.get("entity", None),
+                name=f"{args.run}-probe",
+                config=cfg,
+                dir=run_dir,
+            )
+        except Exception as e:
+            logging.getLogger(__name__).warning("wandb init failed: %s", e)
 
     train_run.main(cfg, run_dir)
 

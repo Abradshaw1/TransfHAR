@@ -18,6 +18,10 @@ from imu_lm.models.ViT1D import run as vit1d_run
 from imu_lm.models.CNN1D import run as cnn_run
 from imu_lm.models.TSTransformer1D import run as tstransformer1d_run
 from imu_lm.utils.helpers import deep_update, load_yaml
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 
 def _resolve_run_dir(cfg: Dict[str, Any], run_name: str | None) -> str:
@@ -55,6 +59,20 @@ def main():
 
     run_dir = _resolve_run_dir(cfg, args.run_name)
     _log_resolved(cfg, run_dir)
+
+    # Minimal wandb init (uses wandb.project / wandb.entity from config)
+    if wandb is not None:
+        wb_cfg = cfg.get("wandb", {}) or {}
+        try:
+            wandb.init(
+                project=wb_cfg.get("project", "imu-lm"),
+                entity=wb_cfg.get("entity", None),
+                name=args.run_name or os.path.basename(run_dir),
+                config=cfg,
+                dir=run_dir,
+            )
+        except Exception as e:
+            logging.getLogger(__name__).warning("wandb init failed: %s", e)
 
     # Detect model type by config keys
     if "cnn1d" in cfg:

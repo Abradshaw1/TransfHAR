@@ -29,7 +29,7 @@ def _infer_embed_dim(encoder, loader, label_map, device):
             continue
         x = x.to(device)
         with torch.no_grad():
-            feats = encoder.forward_features(x)
+            feats = encoder(x)
         return feats.shape[-1]
     raise RuntimeError("Could not infer embedding dim from encoder")
 

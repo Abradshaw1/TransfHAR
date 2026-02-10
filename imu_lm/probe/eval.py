@@ -45,8 +45,7 @@ def eval_head(
             x, y = select_mapped_batch(x, y_raw, raw_to_idx, device, unknown_raw_id=unknown_id)
             if x is None:
                 continue
-            with torch.no_grad():
-                feats = encoder(x)
+            feats = encoder(x)
             logits = head(feats)
             loss = F.cross_entropy(logits, y)
 

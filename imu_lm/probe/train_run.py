@@ -33,6 +33,11 @@ from imu_lm.utils.helpers import cfg_get
 from imu_lm.utils.metrics import compute_metrics, format_metrics_txt
 from imu_lm.utils.training import build_label_map
 
+try:
+    import wandb
+except ImportError:
+    wandb = None
+
 
 def _load_encoder_meta(run_dir: str) -> Dict[str, Any]:
     paths = artifacts.artifact_paths(run_dir)
@@ -57,9 +62,14 @@ def _build_label_names(cfg: Any, logger: logging.Logger) -> Dict[int, str]:
         return {}
     
     try:
-        df = pd.read_parquet(parquet_path, columns=[label_col, name_col])
-        unique_pairs = df.drop_duplicates(subset=[label_col])
-        label_names = {int(row[label_col]): str(row[name_col]) for _, row in unique_pairs.iterrows()}
+        import pyarrow.dataset as pa_ds
+        probe_dataset = cfg_get(cfg, ["splits", "probe_dataset"], None)
+        dset = pa_ds.dataset(parquet_path, format="parquet")
+        dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+        filt = pa_ds.field(dataset_col) == probe_dataset if probe_dataset else None
+        table = dset.to_table(columns=[label_col, name_col], filter=filt)
+        df = table.to_pandas().drop_duplicates(subset=[label_col])
+        label_names = {int(row[label_col]): str(row[name_col]) for _, row in df.iterrows()}
         logger.info("[probe] built label_names mapping: %d activities", len(label_names))
         return label_names
     except Exception as e:
@@ -330,6 +340,13 @@ def main(cfg: Any, run_dir: str):
         logger.info(line_train)
         if val_loader is not None:
             logger.info(line_val)
+
+        # wandb logging
+        if wandb is not None and wandb.run is not None:
+            wb = {f"probe_train/{k}": v for k, v in train_metrics.items() if isinstance(v, (int, float))}
+            if val_metrics:
+                wb.update({f"probe_val/{k}": v for k, v in val_metrics.items() if isinstance(v, (int, float))})
+            wandb.log(wb, step=epoch)
 
         # checkpoints
         save_checkpoint(paths["latest"], head, optimizer, epoch, label_map)

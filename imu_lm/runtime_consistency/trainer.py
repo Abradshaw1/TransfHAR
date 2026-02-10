@@ -8,10 +8,15 @@ from typing import Any, Callable, Dict, Optional
 import numpy as np
 import random
 import torch
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from imu_lm.utils.helpers import cfg_get
+
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 
 def _set_seed(seed: int):
@@ -70,7 +75,7 @@ class Trainer:
         for name, mod in self._extra_modules.items():
             mod.to(self.device)
         self._all_params = list(model.parameters()) + [p for m in self._extra_modules.values() for p in m.parameters()]
-        scaler = GradScaler(enabled=self.use_amp)
+        scaler = GradScaler("cuda", enabled=self.use_amp)
         optimizer.zero_grad(set_to_none=True)
 
         step = int(start_step)
@@ -86,7 +91,7 @@ class Trainer:
                     mod.train()
 
                 batch = self._to_device(batch)
-                with autocast(enabled=self.use_amp):
+                with autocast("cuda", enabled=self.use_amp):
                     loss, logs = objective_step(batch, model, self.cfg)
                     if self.grad_accum_steps > 1:
                         loss = loss / self.grad_accum_steps
@@ -115,6 +120,7 @@ class Trainer:
                     line = self._format_log(step, "train", lr, logs)
                     metrics_f.write(line + "\n")
                     print(line)
+                    self._wandb_log("train", logs, step, lr=lr)
 
                 if step % self.ckpt_every == 0:
                     self._save_ckpt(model, optimizer, scheduler, step)
@@ -167,7 +173,16 @@ class Trainer:
         line = f"step={step} split=val loss={avg_loss:.6f}"
         metrics_f.write(line + "\n")
         print(line)
+        self._wandb_log("val", {"loss": avg_loss}, step)
         return avg_loss
+
+    def _wandb_log(self, split: str, logs: Dict[str, float], step: int, lr: float = None):
+        if wandb is None or wandb.run is None:
+            return
+        payload = {f"{split}/{k}": v for k, v in logs.items() if isinstance(v, (int, float))}
+        if lr is not None:
+            payload["lr"] = lr
+        wandb.log(payload, step=step)
 
     def _get_lr(self, optimizer):
         if optimizer is None or len(optimizer.param_groups) == 0:

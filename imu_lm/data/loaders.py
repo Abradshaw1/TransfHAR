@@ -111,7 +111,7 @@ class WindowDataset(Dataset):
         dataset_col = cfg_get(self.cfg, ["data", "dataset_column"], "dataset")
         subject_col = cfg_get(self.cfg, ["data", "subject_column"], "subject_id")
         session_col = cfg_get(self.cfg, ["data", "session_column"], "session_id")
-        label_col = cfg_get(self.cfg, ["data", "label_column"], "global_activity_id")
+        label_col = cfg_get(self.cfg, ["data", "label_column"], "dataset_activity_id")
         time_col = cfg_get(self.cfg, ["data", "time_column"], None)
         sensor_cols = cfg_get(self.cfg, ["data", "sensor_columns"], []) or []
         drop_na = bool(cfg_get(self.cfg, ["data", "drop_na"], False))
@@ -201,6 +201,7 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
     """Construct DataLoaders for train/val/probe splits.
 
     dataset_filter: optional list of dataset names to restrict session scan.
+                    When provided, builds probe_* loaders. Otherwise builds train/val/test.
     """
 
     parquet_path = cfg_get(cfg, ["paths", "dataset_path"])
@@ -209,21 +210,32 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
     num_workers = int(cfg_get(cfg, ["data", "num_workers"], 0))
     pin_memory = bool(cfg_get(cfg, ["data", "pin_memory"], False))
 
-    mode = "probe" if dataset_filter else "pretrain"
-    logger.info("[%s] build_session_index path=%s", mode, parquet_path)
-    session_index = build_session_index(parquet_path, cfg, dataset_filter=dataset_filter)
-    logger.info("[%s] sessions=%d", mode, len(session_index))
+    is_probe = dataset_filter is not None
+
+    # In pretrain mode, honour data.train_on_datasets if provided.
+    scan_filter = dataset_filter
+    if not is_probe:
+        train_on = cfg_get(cfg, ["data", "train_on_datasets"], None)
+        if train_on is not None:
+            scan_filter = list(train_on)
+
+    mode = "probe" if is_probe else "pretrain"
+    logger.info("[%s] build_session_index path=%s dataset_filter=%s", mode, parquet_path, scan_filter)
+    session_index = build_session_index(parquet_path, cfg, dataset_filter=scan_filter)
+    dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+    datasets_in_run = sorted(session_index[dataset_col].unique().tolist())
+    logger.info("[%s] sessions=%d datasets=%d: %s", mode, len(session_index), len(datasets_in_run), datasets_in_run)
     splits = make_splits(session_index, cfg)
 
     loaders: Dict[str, DataLoader] = {}
     def add(name: str, keys: List[SessionKey], bs: int, shuf: bool):
         if not keys:
             return
-        ds = WindowDataset(parquet_path, session_index, keys, cfg, split_name=name)
-        loaders[f"{name}_loader"] = _make_loader(ds, bs, shuf, num_workers, pin_memory)
-        logger.info("[%s] %s_loader: sessions=%d windows=%d batch_size=%d", mode, name, len(keys), len(ds), bs)
+        wds = WindowDataset(parquet_path, session_index, keys, cfg, split_name=name)
+        loaders[f"{name}_loader"] = _make_loader(wds, bs, shuf, num_workers, pin_memory)
+        logger.info("[%s] %s_loader: sessions=%d windows=%d batch_size=%d", mode, name, len(keys), len(wds), bs)
 
-    if dataset_filter:
+    if is_probe:
         add("probe_train", splits["probe_train_keys"], batch_size, True)
         add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
         add("probe_test", splits["probe_test_keys"], eval_batch_size, False)

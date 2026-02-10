@@ -1,5 +1,5 @@
 splits:
-  probe_dataset: prism
+  probe_dataset: samosa
   probe_ratios: [0.7, 0.1, 0.2]  # train/val/test inside probe dataset
   probe_stratify_by_label: true
 
@@ -8,7 +8,7 @@ probe:
   encoder_meta_relpath: "artifacts/encoder_meta.json"
   drop_unknown: false
   min_count_per_class: 0
-  fewshot_enabled: false
+  fewshot_enabled: true
   fewshot_shots_per_class: 5 # 1 shot = 1 window of data
   fewshot_seed: 0
   num_epochs: 100
