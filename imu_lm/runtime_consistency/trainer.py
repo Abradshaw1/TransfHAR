@@ -48,6 +48,7 @@ class Trainer:
         self.use_amp = bool(cfg_get(cfg, ["trainer", "amp"], False))
         self.grad_clip_norm = float(cfg_get(cfg, ["trainer", "grad_clip_norm"], 0.0))
         self.grad_accum_steps = max(1, int(cfg_get(cfg, ["trainer", "grad_accum_steps"], 1)))
+        self.val_every = int(cfg_get(cfg, ["trainer", "val_every_steps"], 0))
 
         # Early stopping config
         es_cfg = cfg_get(cfg, ["trainer", "early_stopping"], {}) or {}
@@ -75,6 +76,10 @@ class Trainer:
         for name, mod in self._extra_modules.items():
             mod.to(self.device)
         self._all_params = list(model.parameters()) + [p for m in self._extra_modules.values() for p in m.parameters()]
+        for state in optimizer.state.values():
+            for k, v in list(state.items()):
+                if torch.is_tensor(v):
+                    state[k] = v.to(self.device)
         scaler = GradScaler("cuda", enabled=self.use_amp)
         optimizer.zero_grad(set_to_none=True)
 
@@ -117,6 +122,8 @@ class Trainer:
 
                 if step % self.log_every == 0:
                     lr = self._get_lr(optimizer)
+                    grad_norm = self._grad_norm()
+                    logs["grad_norm"] = grad_norm
                     line = self._format_log(step, "train", lr, logs)
                     metrics_f.write(line + "\n")
                     print(line)
@@ -125,33 +132,42 @@ class Trainer:
                 if step % self.ckpt_every == 0:
                     self._save_ckpt(model, optimizer, scheduler, step)
 
+                # Periodic in-training validation
+                if self.val_every > 0 and val_loader is not None and step % self.val_every == 0:
+                    if self._run_val(val_loader, model, objective_step, optimizer, scheduler, step, metrics_f):
+                        break  # early stopping triggered
+
                 if step >= self.max_steps:
                     break
 
-            # Simple val pass per epoch
-            if val_loader is not None:
-                print(f"[train] eval at step {step}")
-                val_loss = self._eval(val_loader, model, objective_step, step, metrics_f)
-                if scheduler is not None and isinstance(scheduler, ReduceLROnPlateau) and val_loss is not None:
-                    scheduler.step(val_loss)
-                
-                # Early stopping check
-                if self.early_stopping_enabled and val_loss is not None:
-                    if val_loss < self.best_val_loss:
-                        self.best_val_loss = val_loss
-                        self.epochs_without_improvement = 0
-                        self._save_ckpt(model, optimizer, scheduler, step, path=self.ckpt_best)
-                        print(f"[train] new best val_loss={val_loss:.6f}")
-                    else:
-                        self.epochs_without_improvement += 1
-                        print(f"[train] no improvement for {self.epochs_without_improvement} epochs")
-                        if self.epochs_without_improvement >= self.early_stopping_patience:
-                            print(f"[train] early stopping triggered at step {step}")
-                            break
+            # Epoch-end validation (only if val_every_steps is not set)
+            if val_loader is not None and self.val_every <= 0:
+                if self._run_val(val_loader, model, objective_step, optimizer, scheduler, step, metrics_f):
+                    break  # early stopping triggered
 
         metrics_f.close()
         # final checkpoint
         self._save_ckpt(model, optimizer, scheduler, step)
+
+    def _run_val(self, val_loader, model, objective_step, optimizer, scheduler, step, metrics_f):
+        """Run validation, update scheduler/early-stopping. Returns True if early stopping triggered."""
+        print(f"[train] eval at step {step}")
+        val_loss = self._eval(val_loader, model, objective_step, step, metrics_f)
+        if scheduler is not None and isinstance(scheduler, ReduceLROnPlateau) and val_loss is not None:
+            scheduler.step(val_loss)
+        if self.early_stopping_enabled and val_loss is not None:
+            if val_loss < self.best_val_loss:
+                self.best_val_loss = val_loss
+                self.epochs_without_improvement = 0
+                self._save_ckpt(model, optimizer, scheduler, step, path=self.ckpt_best)
+                print(f"[train] new best val_loss={val_loss:.6f}")
+            else:
+                self.epochs_without_improvement += 1
+                print(f"[train] no improvement for {self.epochs_without_improvement} evals")
+                if self.epochs_without_improvement >= self.early_stopping_patience:
+                    print(f"[train] early stopping triggered at step {step}")
+                    return True
+        return False
 
     def _eval(self, val_loader, model, objective_step, step, metrics_f):
         model.eval()
@@ -183,6 +199,13 @@ class Trainer:
         if lr is not None:
             payload["lr"] = lr
         wandb.log(payload, step=step)
+
+    def _grad_norm(self):
+        total_norm = 0.0
+        for p in self._all_params:
+            if p.grad is not None:
+                total_norm += p.grad.data.norm(2).item() ** 2
+        return total_norm ** 0.5
 
     def _get_lr(self, optimizer):
         if optimizer is None or len(optimizer.param_groups) == 0:

@@ -44,6 +44,7 @@ trainer:
   max_steps: 100000
   grad_clip_norm: 1.0
   grad_accum_steps: 1
+  val_every_steps: 5000
 
   optim:
     name: adamw
