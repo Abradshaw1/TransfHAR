@@ -179,32 +179,41 @@ def load_checkpoint(
     Returns:
         Start step from checkpoint (0 if not found)
     """
-    if not resume_path or not os.path.exists(resume_path):
+    if not resume_path:
+        return 0
+    if not os.path.exists(resume_path):
+        logger.warning("[resume] checkpoint not found: %s — starting from scratch", resume_path)
         return 0
     
+    logger.info("[resume] loading checkpoint from %s", resume_path)
     state = torch.load(resume_path, map_location="cpu")
     
     if "model" in state:
-        model.load_state_dict(state["model"], strict=False)
+        model.load_state_dict(state["model"], strict=True)
+        logger.info("[resume] model loaded (%d params)", len(state["model"]))
     
     if extra_modules:
         for name, mod in extra_modules.items():
             if name in state:
-                try:
-                    mod.load_state_dict(state[name], strict=False)
-                except Exception as e:
-                    logger.warning("checkpoint extra module load failed: %s (%s)", name, e)
+                mod.load_state_dict(state[name], strict=True)
+                logger.info("[resume] extra module '%s' loaded (%d params)", name, len(state[name]))
+            else:
+                logger.warning("[resume] extra module '%s' not found in checkpoint", name)
     
     if optimizer is not None and state.get("optimizer"):
         try:
             optimizer.load_state_dict(state["optimizer"])
+            logger.info("[resume] optimizer loaded")
         except Exception as e:
-            logger.warning("checkpoint optimizer load failed: %s", e)
+            logger.warning("[resume] optimizer load failed: %s", e)
     
     if scheduler is not None and state.get("scheduler"):
         try:
             scheduler.load_state_dict(state["scheduler"])
+            logger.info("[resume] scheduler loaded")
         except Exception as e:
-            logger.warning("checkpoint scheduler load failed: %s", e)
+            logger.warning("[resume] scheduler load failed: %s", e)
     
-    return int(state.get("step", 0))
+    start_step = int(state.get("step", 0))
+    logger.info("[resume] resuming from step %d", start_step)
+    return start_step
