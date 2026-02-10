@@ -81,12 +81,21 @@ class Trainer:
                 if torch.is_tensor(v):
                     state[k] = v.to(self.device)
         scaler = GradScaler("cuda", enabled=self.use_amp)
-        optimizer.zero_grad(set_to_none=True)
 
         step = int(start_step)
+        epoch = 0
+        # Restore early stopping state from checkpoint if resuming
+        if start_step > 0:
+            ckpt_path = self.ckpt_latest
+            if os.path.exists(ckpt_path):
+                ckpt = torch.load(ckpt_path, map_location="cpu")
+                self.best_val_loss = ckpt.get("best_val_loss", float("inf"))
+                self.epochs_without_improvement = ckpt.get("epochs_without_improvement", 0)
+                print(f"[resume] early stopping state: best_val_loss={self.best_val_loss:.6f}, patience_count={self.epochs_without_improvement}")
         metrics_f = open(self.metrics_path, "a", buffering=1)
 
         while step < self.max_steps:
+            epoch += 1
             for batch in train_loader:
                 if batch is None:
                     continue
@@ -122,8 +131,7 @@ class Trainer:
 
                 if step % self.log_every == 0:
                     lr = self._get_lr(optimizer)
-                    grad_norm = self._grad_norm()
-                    logs["grad_norm"] = grad_norm
+                    logs["epoch"] = epoch
                     line = self._format_log(step, "train", lr, logs)
                     metrics_f.write(line + "\n")
                     print(line)
@@ -180,7 +188,8 @@ class Trainer:
                 if batch is None:
                     continue
                 batch = self._to_device(batch)
-                loss, logs = objective_step(batch, model, self.cfg)
+                with autocast("cuda", enabled=self.use_amp):
+                    loss, logs = objective_step(batch, model, self.cfg)
                 total_loss += float(loss.detach().item())
                 count += 1
         if count == 0:
@@ -200,22 +209,15 @@ class Trainer:
             payload["lr"] = lr
         wandb.log(payload, step=step)
 
-    def _grad_norm(self):
-        total_norm = 0.0
-        for p in self._all_params:
-            if p.grad is not None:
-                total_norm += p.grad.data.norm(2).item() ** 2
-        return total_norm ** 0.5
-
     def _get_lr(self, optimizer):
         if optimizer is None or len(optimizer.param_groups) == 0:
             return 0.0
         return optimizer.param_groups[0].get("lr", 0.0)
 
     def _format_log(self, step: int, split: str, lr: float, logs: Dict[str, float]):
-        tokens = [f"step={step}", f"split={split}", f"loss={logs.get('loss', 0.0):.6f}", f"lr={lr:.6f}"]
+        tokens = [f"epoch={logs.get('epoch', 0)}", f"step={step}", f"split={split}", f"loss={logs.get('loss', 0.0):.6f}", f"lr={lr:.6f}"]
         for k, v in logs.items():
-            if k == "loss":
+            if k in ("loss", "epoch"):
                 continue
             if isinstance(v, float):
                 tokens.append(f"{k}={v:.6f}")
@@ -230,6 +232,8 @@ class Trainer:
             "optimizer": optimizer.state_dict() if optimizer else None,
             "scheduler": scheduler.state_dict() if scheduler is not None else None,
             "cfg": self.cfg,
+            "best_val_loss": self.best_val_loss,
+            "epochs_without_improvement": self.epochs_without_improvement,
         }
         for name, mod in self._extra_modules.items():
             state[name] = mod.state_dict()
