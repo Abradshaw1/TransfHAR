@@ -44,23 +44,43 @@ def _load_session_df(parquet_path: str, key: SessionKey, cols: List[str], cfg: A
 
 def _build_window_specs(
     session_keys: List[SessionKey], n_rows_map: Dict[SessionKey, int], cfg: Any
-) -> Tuple[List[Tuple[SessionKey, int]], Dict[str, int]]:
-    """Precompute (key, start_idx) using only lengths (no data reads)."""
+) -> Tuple[List[SessionKey], np.ndarray, np.ndarray, Dict[str, int]]:
+    """Precompute compact window specs using numpy arrays.
 
+    Returns:
+        kept_keys: deduplicated list of SessionKeys that have windows
+        sess_idx:  int32 array, index into kept_keys for each window
+        starts:    int32 array, start row for each window
+        counters:  dict with sessions/windows counts
+    """
     T, hop = compute_T_and_hop(cfg)
-    window_specs: List[Tuple[SessionKey, int]] = []
-    counters = {"sessions": 0, "windows": 0}
+    kept_keys: List[SessionKey] = []
 
+    # First pass: count total windows to preallocate arrays
+    total_win = 0
+    for key in session_keys:
+        N = n_rows_map.get(key, 0)
+        if N >= T:
+            total_win += (N - T) // hop + 1
+
+    sess_idx = np.empty(total_win, dtype=np.int32) #pre allocate arrays
+    starts = np.empty(total_win, dtype=np.int32) #pre allocate arrays
+
+    # Second pass: fill arrays
+    offset = 0
     for key in session_keys:
         N = n_rows_map.get(key, 0)
         if N < T:
             continue
-        for start in range(0, N - T + 1, hop):
-            window_specs.append((key, start))
-            counters["windows"] += 1
-        counters["sessions"] += 1
+        ki = len(kept_keys)
+        kept_keys.append(key)
+        n_win = (N - T) // hop + 1
+        sess_idx[offset : offset + n_win] = ki
+        starts[offset : offset + n_win] = np.arange(0, N - T + 1, hop, dtype=np.int32)
+        offset += n_win
 
-    return window_specs, counters
+    counters = {"sessions": len(kept_keys), "windows": total_win}
+    return kept_keys, sess_idx, starts, counters
 
 
 @dataclass
@@ -91,7 +111,9 @@ class WindowDataset(Dataset):
             for _, r in session_index.iterrows()
         }
 
-        self.window_specs, counters = _build_window_specs(filtered_keys, n_rows_map, cfg)
+        self._keys, self._sess_idx, self._starts, counters = _build_window_specs(
+            filtered_keys, n_rows_map, cfg
+        )
 
         logger.info(
             "WindowDataset split=%s sessions=%d windows=%d (filtered=%d)",
@@ -102,7 +124,7 @@ class WindowDataset(Dataset):
         )
 
     def __len__(self) -> int:
-        return len(self.window_specs)
+        return len(self._starts)
 
     def _load_session(self, key: SessionKey) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         if self.cache.key == key and self.cache.X is not None:
@@ -135,7 +157,8 @@ class WindowDataset(Dataset):
         return X, y, t
 
     def __getitem__(self, idx: int):
-        key, start = self.window_specs[idx]
+        key = self._keys[self._sess_idx[idx]]
+        start = int(self._starts[idx])
         X, y, t = self._load_session(key)
         T, _ = compute_T_and_hop(self.cfg)
         Xw = X[start : start + T]
