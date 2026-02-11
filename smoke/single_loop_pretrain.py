@@ -12,15 +12,16 @@ from typing import Any, Dict, Tuple
 
 import torch
 import yaml
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 from imu_lm.data.loaders import make_loaders
 from imu_lm.data.splits import build_session_index, make_splits
-from imu_lm.models.ViT2D import run as vit_run
-from imu_lm.models.ViT2D.model import ViTEncoder
-from imu_lm.objectives import mae as mae_obj
+from imu_lm.data.windowing import compute_T_and_hop
+from imu_lm.models.ViT1D.model import ViT1DEncoder, ViT1DDecoder
+from imu_lm.objectives import masked_1d as masked_1d_obj
 from imu_lm.runtime_consistency.artifacts import save_encoder
 from imu_lm.utils.helpers import cfg_get
+from imu_lm.utils.training import build_optimizer_from_params, build_scheduler
 
 
 def _deep_update(base: Dict[str, Any], upd: Dict[str, Any]) -> Dict[str, Any]:
@@ -89,8 +90,8 @@ def _first_non_none_batch(loader):
 def _inspect_batch(x: torch.Tensor):
     if not torch.is_floating_point(x):
         raise AssertionError(f"batch dtype must be float; got {x.dtype}")
-    if x.dim() != 4:
-        raise AssertionError(f"batch must be image-like [B,C,H,W]; got shape {tuple(x.shape)}")
+    if x.dim() not in (3, 4):
+        raise AssertionError(f"batch must be [B,C,T] or [B,C,H,W]; got shape {tuple(x.shape)}")
     stats = {
         "shape": list(x.shape),
         "min": float(x.min().item()),
@@ -119,17 +120,19 @@ def _save_latest(model, optimizer, cfg, run_dir: str, step: int):
     return path
 
 
-def _build_meta(model: ViTEncoder, cfg: Any) -> Dict[str, Any]:
+def _build_meta(model: ViT1DEncoder, cfg: Any) -> Dict[str, Any]:
+    T, _ = compute_T_and_hop(cfg)
+    sensor_cols = cfg_get(cfg, ["data", "sensor_columns"], ["acc_x", "acc_y", "acc_z"])
     return {
         "embedding_dim": model.embed_dim,
-        "encoding": "spectrogram_image",
+        "encoding": "raw_1d_imu",
         "objective": "mae",
-        "backbone": model.backbone_name,
+        "backbone": "vit1d",
         "input_spec": {
-            "channels": model.num_channels,
-            "height": model.resize_hw[0],
-            "width": model.resize_hw[1],
+            "channels": len(sensor_cols),
+            "time_steps": T,
             "patch_size": model.patch_size,
+            "format": "[B, C, T]",
         },
         "normalization": cfg_get(cfg, ["preprocess", "normalize", "method"], None),
     }
@@ -171,12 +174,21 @@ def main():
 
     # Build model/objective/optim
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ViTEncoder(cfg).to(device)  # mae_model already attached
-    objective_fn = mae_obj.forward_loss
-    optimizer = vit_run._build_optimizer(model, cfg)
-    scheduler = vit_run._build_scheduler(optimizer, cfg)
+    T, _ = compute_T_and_hop(cfg)
+    encoder = ViT1DEncoder(cfg).to(device)
+    decoder = ViT1DDecoder(
+        embed_dim=encoder.embed_dim,
+        out_channels=encoder.in_channels,
+        target_T=T,
+        cfg=cfg,
+    ).to(device)
+    def objective_fn(batch, model, cfg):
+        return masked_1d_obj.forward_loss(batch, encoder, decoder, cfg)
+    all_params = list(encoder.parameters()) + list(decoder.parameters())
+    optimizer = build_optimizer_from_params(all_params, cfg)
+    scheduler = build_scheduler(optimizer, cfg)
     use_amp = bool(cfg_get(cfg, ["trainer", "amp"], False))
-    scaler = GradScaler(enabled=use_amp)
+    scaler = GradScaler("cuda", enabled=use_amp)
 
     # Single or zero step
     metrics_path = os.path.join(run_dir, "logs", "metrics.txt")
@@ -186,12 +198,12 @@ def main():
             y = y.to(device)
             step = 1
             optimizer.zero_grad(set_to_none=True)
-            with autocast(enabled=use_amp):
-                loss, logs = objective_fn((x, y), model, cfg)
+            with autocast("cuda", enabled=use_amp):
+                loss, logs = objective_fn((x, y), encoder, cfg)
             if not torch.isfinite(loss):
                 raise AssertionError("Loss is not finite")
             scaler.scale(loss).backward()
-            grads = [p for p in model.parameters() if p.grad is not None]
+            grads = [p for p in all_params if p.grad is not None]
             if len(grads) == 0:
                 raise AssertionError("No gradients found after backward")
             scaler.step(optimizer)
@@ -207,9 +219,9 @@ def main():
             print("steps=0: skipping train step; only saving artifacts")
 
     # Save checkpoint + encoder artifact
-    ckpt_path = _save_latest(model, optimizer, cfg, run_dir, step=1)
-    meta = _build_meta(model, cfg)
-    save_encoder(model, meta, run_dir)
+    ckpt_path = _save_latest(encoder, optimizer, cfg, run_dir, step=1)
+    meta = _build_meta(encoder, cfg)
+    save_encoder(encoder, meta, run_dir)
 
     print(json.dumps({"checkpoint": ckpt_path, "artifacts": run_dir + "/artifacts"}))
 

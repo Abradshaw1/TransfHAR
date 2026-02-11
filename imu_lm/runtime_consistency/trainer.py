@@ -83,19 +83,20 @@ class Trainer:
         scaler = GradScaler("cuda", enabled=self.use_amp)
 
         step = int(start_step)
-        epoch = 0
-        # Restore early stopping state from checkpoint if resuming
+        self._epoch = 0
+        # Restore early stopping state + epoch from checkpoint if resuming
         if start_step > 0:
             ckpt_path = self.ckpt_latest
             if os.path.exists(ckpt_path):
                 ckpt = torch.load(ckpt_path, map_location="cpu")
                 self.best_val_loss = ckpt.get("best_val_loss", float("inf"))
                 self.epochs_without_improvement = ckpt.get("epochs_without_improvement", 0)
-                print(f"[resume] early stopping state: best_val_loss={self.best_val_loss:.6f}, patience_count={self.epochs_without_improvement}")
+                self._epoch = ckpt.get("epoch", 0)
+                print(f"[resume] epoch={self._epoch} best_val_loss={self.best_val_loss:.6f} patience_count={self.epochs_without_improvement}")
         metrics_f = open(self.metrics_path, "a", buffering=1)
 
         while step < self.max_steps:
-            epoch += 1
+            self._epoch += 1
             for batch in train_loader:
                 if batch is None:
                     continue
@@ -131,7 +132,7 @@ class Trainer:
 
                 if step % self.log_every == 0:
                     lr = self._get_lr(optimizer)
-                    logs["epoch"] = epoch
+                    logs["epoch"] = self._epoch
                     line = self._format_log(step, "train", lr, logs)
                     metrics_f.write(line + "\n")
                     print(line)
@@ -234,6 +235,7 @@ class Trainer:
             "cfg": self.cfg,
             "best_val_loss": self.best_val_loss,
             "epochs_without_improvement": self.epochs_without_improvement,
+            "epoch": self._epoch,
         }
         for name, mod in self._extra_modules.items():
             state[name] = mod.state_dict()

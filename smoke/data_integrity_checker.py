@@ -21,7 +21,10 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
-EXPECTED_DATASETS: Optional[List[str]] = ["samosa", "opportunity++", "pamap2"]
+EXPECTED_DATASETS: Optional[List[str]] = [
+    "capture24", "opportunity++", "pamap2", "recofit",
+    "ut_watch", "wisdm", "wear", "samosa",
+]
 
 
 def load_cfg(path: str) -> Any:

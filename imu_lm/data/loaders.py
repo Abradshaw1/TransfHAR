@@ -24,24 +24,6 @@ from imu_lm.utils.helpers import cfg_get
 logger = logging.getLogger(__name__)
 
 
-def _load_session_df(parquet_path: str, key: SessionKey, cols: List[str], cfg: Any) -> pd.DataFrame:
-    dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
-    subject_col = cfg_get(cfg, ["data", "subject_column"], "subject_id")
-    session_col = cfg_get(cfg, ["data", "session_column"], "session_id")
-
-    if ds is None:  # pragma: no cover - enforced above
-        raise ImportError("pyarrow is required for dataset loading")
-
-    dataset = ds.dataset(parquet_path, format="parquet")
-    filt = (
-        (ds.field(dataset_col) == key.dataset)
-        & (ds.field(subject_col) == key.subject_id)
-        & (ds.field(session_col) == key.session_id)
-    )
-    table = dataset.to_table(columns=cols, filter=filt)
-    return table.to_pandas()
-
-
 def _build_window_specs(
     session_keys: List[SessionKey], n_rows_map: Dict[SessionKey, int], cfg: Any
 ) -> Tuple[List[SessionKey], np.ndarray, np.ndarray, Dict[str, int]]:
@@ -98,18 +80,37 @@ class WindowDataset(Dataset):
         self.split_name = split_name
         self.cache = _SessionCache()
         self.stats = PreprocessStats()
+        self._pa_dataset = None  # lazily opened per-worker
 
+        # Cache config values read on every __getitem__
+        self._dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+        self._subject_col = cfg_get(cfg, ["data", "subject_column"], "subject_id")
+        self._session_col = cfg_get(cfg, ["data", "session_column"], "session_id")
+        self._label_col = cfg_get(cfg, ["data", "label_column"], "dataset_activity_id")
+        self._time_col = cfg_get(cfg, ["data", "time_column"], None)
+        self._sensor_cols = cfg_get(cfg, ["data", "sensor_columns"], []) or []
+        self._drop_na = bool(cfg_get(cfg, ["data", "drop_na"], False))
+        self._T, self._hop = compute_T_and_hop(cfg)
+        self._handle_gaps = bool(cfg_get(cfg, ["windowing", "handle_gaps"], False))
+        self._gap_method = cfg_get(cfg, ["windowing", "gap_method"], "interpolate")
+        self._max_gap_ns = float(cfg_get(cfg, ["windowing", "max_gap_ms"], 200.0)) * 1e6
+        self._spec_enabled = bool((cfg_get(cfg, ["spectrogram"], {}) or {}).get("enabled", False))
+
+        # Build load columns list once
+        self._load_cols = list(self._sensor_cols) + [self._label_col]
+        if self._time_col:
+            self._load_cols.append(self._time_col)
+        self._load_cols.extend([self._dataset_col, self._subject_col, self._session_col])
+
+        # Single pass over session_index for both gap_counts and n_rows
         max_gaps_per_session = int(cfg_get(cfg, ["windowing", "max_gaps_per_session"], 1_000_000_000))
-        gap_counts = {
-            SessionKey(r["dataset"], str(r["subject_id"]), str(r["session_id"])): int(r.get("gap_count", 0))
-            for _, r in session_index.iterrows()
-        }
+        gap_counts: Dict[SessionKey, int] = {}
+        n_rows_map: Dict[SessionKey, int] = {}
+        for _, r in session_index.iterrows():
+            k = SessionKey(r["dataset"], str(r["subject_id"]), str(r["session_id"]))
+            gap_counts[k] = int(r.get("gap_count", 0))
+            n_rows_map[k] = int(r["n_rows"])
         filtered_keys = [k for k in session_keys if gap_counts.get(k, 0) <= max_gaps_per_session]
-
-        n_rows_map = {
-            SessionKey(r["dataset"], str(r["subject_id"]), str(r["session_id"])): int(r["n_rows"])
-            for _, r in session_index.iterrows()
-        }
 
         self._keys, self._sess_idx, self._starts, counters = _build_window_specs(
             filtered_keys, n_rows_map, cfg
@@ -126,32 +127,33 @@ class WindowDataset(Dataset):
     def __len__(self) -> int:
         return len(self._starts)
 
+    def _get_pa_dataset(self):
+        """Lazily open the pyarrow dataset once per worker process."""
+        if self._pa_dataset is None:
+            self._pa_dataset = ds.dataset(self.parquet_path, format="parquet")
+        return self._pa_dataset
+
     def _load_session(self, key: SessionKey) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         if self.cache.key == key and self.cache.X is not None:
             return self.cache.X, self.cache.y, self.cache.t
 
-        dataset_col = cfg_get(self.cfg, ["data", "dataset_column"], "dataset")
-        subject_col = cfg_get(self.cfg, ["data", "subject_column"], "subject_id")
-        session_col = cfg_get(self.cfg, ["data", "session_column"], "session_id")
-        label_col = cfg_get(self.cfg, ["data", "label_column"], "dataset_activity_id")
-        time_col = cfg_get(self.cfg, ["data", "time_column"], None)
-        sensor_cols = cfg_get(self.cfg, ["data", "sensor_columns"], []) or []
-        drop_na = bool(cfg_get(self.cfg, ["data", "drop_na"], False))
+        pa_ds = self._get_pa_dataset()
+        filt = (
+            (ds.field(self._dataset_col) == key.dataset)
+            & (ds.field(self._subject_col) == key.subject_id)
+            & (ds.field(self._session_col) == key.session_id)
+        )
+        table = pa_ds.to_table(columns=self._load_cols, filter=filt)
+        df = table.to_pandas()
 
-        cols = list(sensor_cols) + [label_col]
-        if time_col:
-            cols.append(time_col)
-        cols.extend([dataset_col, subject_col, session_col])
+        if self._time_col:
+            df = df.sort_values(self._time_col).reset_index(drop=True)
+        if self._drop_na:
+            df = df.dropna(subset=self._sensor_cols)
 
-        df = _load_session_df(self.parquet_path, key, cols, self.cfg)
-        if time_col:
-            df = df.sort_values(time_col).reset_index(drop=True)
-        if drop_na:
-            df = df.dropna(subset=sensor_cols)
-
-        X = df[sensor_cols].to_numpy(dtype=np.float32)
-        y = df[label_col].to_numpy()
-        t = df[time_col].to_numpy() if time_col else None
+        X = df[self._sensor_cols].to_numpy(dtype=np.float32)
+        y = df[self._label_col].to_numpy()
+        t = df[self._time_col].to_numpy() if self._time_col else None
 
         self.cache = _SessionCache(key=key, X=X, y=y, t=t)
         return X, y, t
@@ -160,7 +162,7 @@ class WindowDataset(Dataset):
         key = self._keys[self._sess_idx[idx]]
         start = int(self._starts[idx])
         X, y, t = self._load_session(key)
-        T, _ = compute_T_and_hop(self.cfg)
+        T = self._T
         Xw = X[start : start + T]
         yw = y[start : start + T]
 
@@ -169,26 +171,19 @@ class WindowDataset(Dataset):
             return None
 
         # gap gating at fetch time
-        handle_gaps = bool(cfg_get(self.cfg, ["windowing", "handle_gaps"], False))
-        gap_method = cfg_get(self.cfg, ["windowing", "gap_method"], "interpolate")
-        max_gap_ms = float(cfg_get(self.cfg, ["windowing", "max_gap_ms"], 200.0))
-        if handle_gaps and t is not None:
+        if self._handle_gaps and t is not None:
             dt = np.diff(t[start : start + T])
-            if np.any(dt > max_gap_ms * 1e6):
-                if gap_method in {"drop", "split_segment"}:
+            if np.any(dt > self._max_gap_ns):
+                if self._gap_method in {"drop", "split_segment"}:
                     return None
 
         Xproc = preprocess_window(Xw, self.cfg, self.stats)
         if Xproc is None:
             return None
 
-        # time-domain augmentations (apply_augment expects [T, C])
-        # Always apply if any augment is enabled (checked inside apply_augment)
         Xproc = apply_augment(Xproc.T, self.cfg).T
 
-        # Default: raw 1D IMU [C, T]. If spectrogram.enabled, convert to [3, F, TT]
-        spec_cfg = cfg_get(self.cfg, ["spectrogram"], {}) or {}
-        if spec_cfg.get("enabled", False):
+        if self._spec_enabled:
             out = stft_encode(torch.from_numpy(Xproc).float(), self.cfg)
             x_tensor = out[1] if isinstance(out, tuple) else out
             if x_tensor.dim() != 3:
@@ -200,6 +195,66 @@ class WindowDataset(Dataset):
         return x_tensor, y_tensor
 
 
+class SessionGroupedBatchSampler:
+    """Batch sampler that groups windows by session for I/O efficiency.
+
+    Instead of random access across all windows (causing constant parquet
+    cache misses on the single-entry _SessionCache), this sampler yields all
+    windows from one session before moving to the next.  Sessions are shuffled
+    each epoch for randomness; windows within each session are also shuffled.
+    """
+
+    def __init__(self, sess_idx: np.ndarray, batch_size: int,
+                 shuffle: bool = True, drop_last: bool = False, seed: int = 0):
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.drop_last = drop_last
+        self.seed = seed
+        self.epoch = 0
+
+        # sess_idx is contiguous by session from _build_window_specs
+        _, self._group_starts, self._group_counts = np.unique(
+            sess_idx, return_index=True, return_counts=True
+        )
+        self._n_sessions = len(self._group_starts)
+        self._total = int(sess_idx.shape[0])
+
+    def set_epoch(self, epoch: int):
+        """For DDP compatibility."""
+        self.epoch = epoch
+
+    def __iter__(self):
+        rng = np.random.RandomState(self.seed + self.epoch)
+
+        if self.shuffle:
+            session_order = rng.permutation(self._n_sessions)
+        else:
+            session_order = np.arange(self._n_sessions)
+
+        batch: list[int] = []
+        for si in session_order:
+            start = int(self._group_starts[si])
+            count = int(self._group_counts[si])
+            indices = np.arange(start, start + count)
+            if self.shuffle:
+                rng.shuffle(indices)
+            for idx in indices:
+                batch.append(int(idx))
+                if len(batch) == self.batch_size:
+                    yield batch
+                    batch = []
+
+        if batch and not self.drop_last:
+            yield batch
+
+        self.epoch += 1
+
+    def __len__(self):
+        if self.drop_last:
+            return self._total // self.batch_size
+        return (self._total + self.batch_size - 1) // self.batch_size
+
+
 def collate_skip_none(batch):
     batch = [b for b in batch if b is not None]
     if len(batch) == 0:
@@ -209,14 +264,28 @@ def collate_skip_none(batch):
 
 
 def _make_loader(dataset: WindowDataset, batch_size: int, shuffle: bool, num_workers: int, pin_memory: bool) -> DataLoader:
+    persistent = num_workers > 0
+    if shuffle:
+        batch_sampler = SessionGroupedBatchSampler(
+            dataset._sess_idx, batch_size, shuffle=True, drop_last=False,
+        )
+        return DataLoader(
+            dataset,
+            batch_sampler=batch_sampler,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            collate_fn=collate_skip_none,
+            persistent_workers=persistent,
+        )
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=False,
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=False,
         collate_fn=collate_skip_none,
+        persistent_workers=persistent,
     )
 
 

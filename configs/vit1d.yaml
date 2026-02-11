@@ -31,10 +31,10 @@ objective:
 trainer:
   seed: 42
   amp: true
-  max_steps: 100000
+  max_steps: 10000000
   grad_clip_norm: 1.0
   grad_accum_steps: 1
-  val_every_steps: 2500
+  val_every_steps: 100
 
   optim:
     name: adamw
@@ -50,4 +50,4 @@ trainer:
   early_stopping:
     enabled: true
     monitor: val_loss
-    patience: 50
+    patience: 10
