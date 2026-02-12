@@ -14,7 +14,7 @@ from imu_lm.probe.eval import eval_head
 from imu_lm.probe.head import LinearHead
 from imu_lm.probe.io import load_checkpoint, resolve_probe_dir, write_metrics_line, write_summary
 from imu_lm.runtime_consistency import artifacts
-from imu_lm.utils.helpers import deep_update, load_yaml
+from imu_lm.utils.helpers import cfg_get, deep_update, load_yaml
 from imu_lm.utils.metrics import format_metrics_txt
 
 
@@ -64,6 +64,14 @@ def main():
     for p in encoder.parameters():
         p.requires_grad = False
 
+    # Override batch size from probe config
+    probe_cfg = cfg.get("probe", {}) if isinstance(cfg, dict) else {}
+    bs = probe_cfg.get("batch_size", None)
+    if bs is not None and isinstance(cfg, dict):
+        cfg.setdefault("data", {})
+        cfg["data"]["batch_size"] = bs
+        cfg["data"]["eval_batch_size"] = bs
+
     probe_dataset = cfg.get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
     if probe_dataset is None and isinstance(cfg, dict):
         probe_dataset = cfg.get("data", {}).get("splits", {}).get("probe_dataset", None)
@@ -74,7 +82,7 @@ def main():
     if test_loader is None:
         raise SystemExit("probe_test_loader missing; cannot eval")
 
-    # Load checkpoint
+    # Load head checkpoint
     ckpt_path = args.ckpt or paths["best"]
     if not os.path.exists(ckpt_path):
         ckpt_path = paths.get("latest", ckpt_path)
@@ -100,8 +108,9 @@ def main():
     head = LinearHead(embed_dim, num_classes).to(device)
     head.load_state_dict(state)
     head.eval()
+    logger.info("[probe eval] loaded head from %s (embed_dim=%d, num_classes=%d)", ckpt_path, embed_dim, num_classes)
 
-    logger.info("[probe eval] running evaluation on test split...")
+    logger.info("[probe eval] running evaluation on test split (%d windows)...", len(test_loader.dataset))
     metrics = eval_head(encoder, head, test_loader, label_map, device)
 
     line = "split=test " + format_metrics_txt(metrics)
@@ -117,15 +126,17 @@ def main():
     # Print summary metrics
     labels = metrics.get("labels", [])
     per_class = metrics.get("per_class", {})
-    
-    print(f"\n[probe eval] ===== TEST RESULTS =====")
-    print(f"[probe eval] classes evaluated: {len(labels)} (expected: {num_classes})")
-    print(f"[probe eval] bal_acc={metrics.get('bal_acc', 0):.4f}  macro_f1={metrics.get('macro_f1', 0):.4f}")
-    print(f"\n[probe eval] Per-class F1:")
-    for lbl, class_metrics in per_class.items():
-        f1_val = class_metrics.get("f1", 0.0) if isinstance(class_metrics, dict) else 0.0
-        print(f"  class {lbl}: F1={f1_val:.4f}")
-    print(f"\n[probe eval] summary written to {paths['summary']}")
+
+    print(f"\n===== TEST RESULTS =====")
+    print(f"classes: {len(labels)} (expected: {num_classes})")
+    print(f"bal_acc={metrics.get('bal_acc', 0):.4f}  macro_f1={metrics.get('macro_f1', 0):.4f}  macro_precision={metrics.get('macro_precision', 0):.4f}  macro_recall={metrics.get('macro_recall', 0):.4f}")
+    print(f"\n{'Class':<25s} {'Prec':>6s} {'Recall':>6s} {'F1':>6s} {'Acc':>6s} {'Support':>7s}")
+    print("-" * 62)
+    for lbl, cm in per_class.items():
+        if not isinstance(cm, dict):
+            continue
+        print(f"{lbl:<25s} {cm.get('precision',0):.4f} {cm.get('recall',0):.4f} {cm.get('f1',0):.4f} {cm.get('accuracy',0):.4f} {cm.get('support',0):>7d}")
+    print(f"\nsummary written to {paths['summary']}")
 
 
 if __name__ == "__main__":

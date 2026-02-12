@@ -83,8 +83,18 @@ def compute_metrics(
     }
 
 
+def format_metrics_summary(metrics: Dict[str, object]) -> str:
+    """One-line summary for terminal: loss, acc, bacc, macro_f1, precision, recall."""
+    tokens = []
+    for k in ("loss", "acc", "bal_acc", "macro_f1", "macro_precision", "macro_recall"):
+        v = metrics.get(k)
+        if v is not None and isinstance(v, (int, float)):
+            tokens.append(f"{k}={v:.6f}")
+    return " ".join(tokens)
+
+
 def format_metrics_txt(metrics: Dict[str, object], prefix: str = "") -> str:
-    """Serialize metrics dict to key=value tokens for metrics.txt lines."""
+    """Full metrics for metrics.txt file (includes per-class)."""
 
     tokens = []
     pre = f"{prefix}" if prefix else ""
@@ -98,7 +108,6 @@ def format_metrics_txt(metrics: Dict[str, object], prefix: str = "") -> str:
     add("macro_precision", f"{metrics.get('macro_precision', 0.0):.6f}")
     add("macro_recall", f"{metrics.get('macro_recall', 0.0):.6f}")
 
-    # Per-class metrics (new nested structure)
     per_class = metrics.get("per_class", {}) or {}
     for lbl, class_metrics in per_class.items():
         if isinstance(class_metrics, dict):

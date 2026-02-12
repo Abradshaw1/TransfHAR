@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import warnings
 from typing import Any, Dict, List, Tuple
 
 import logging
@@ -30,7 +31,7 @@ from imu_lm.probe.io import (
 )
 from imu_lm.runtime_consistency import artifacts
 from imu_lm.utils.helpers import cfg_get
-from imu_lm.utils.metrics import compute_metrics, format_metrics_txt
+from imu_lm.utils.metrics import compute_metrics, format_metrics_summary, format_metrics_txt
 from imu_lm.utils.training import build_label_map
 
 try:
@@ -111,7 +112,7 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
     )
 
 
-def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int):
+def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int, epoch: int = 0):
     encoder.eval()
     head.train()
     total_loss = 0.0
@@ -150,21 +151,19 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
         y_pred.extend(preds.cpu().tolist())
 
         if log_every_steps and batch_idx % log_every_steps == 0:
-            step_metrics = compute_metrics(y.cpu().tolist(), preds.cpu().tolist()) if y.numel() > 0 else {}
-            batch_bal_acc = step_metrics.get("bal_acc", 0.0)
-            batch_macro_f1 = step_metrics.get("macro_f1", 0.0)
-            logger.info(
-                "[probe] step=%d loss=%.6f bal_acc=%.4f macro_f1=%.4f",
-                batch_idx,
-                loss.detach().item(),
-                batch_bal_acc,
-                batch_macro_f1,
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                step_metrics = compute_metrics(y.cpu().tolist(), preds.cpu().tolist()) if y.numel() > 0 else {}
+            step_metrics["loss"] = float(loss.detach().item())
+            step_metrics["acc"] = float((preds == y).float().mean().item())
+            print(f"epoch={epoch} step={batch_idx} split=train {format_metrics_summary(step_metrics)}")
 
     if n_samples == 0:
         return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}
 
-    metrics = compute_metrics(y_true, y_pred)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        metrics = compute_metrics(y_true, y_pred)
     metrics["loss"] = total_loss / n_samples
     metrics["acc"] = float(np.mean(np.array(y_true) == np.array(y_pred)))
     return metrics
@@ -202,7 +201,7 @@ def main(cfg: Any, run_dir: str):
         "seed": probe_cfg.get("fewshot_seed", 0),
     }
     train_cfg = {
-        "num_epochs": probe_cfg.get("num_epochs", 100),
+        "num_epochs": probe_cfg.get("num_epochs", 1000000),
         "batch_size": probe_cfg.get("batch_size", 256),
         "lr": probe_cfg.get("lr", 0.0001),
         "weight_decay": probe_cfg.get("weight_decay", 0.0),
@@ -210,7 +209,7 @@ def main(cfg: Any, run_dir: str):
         "early_stop_patience": probe_cfg.get("early_stop_patience", 20),
         "amp": probe_cfg.get("amp", True),
         "selection_metric": probe_cfg.get("selection_metric", "macro_f1"),
-        "log_every_batches": probe_cfg.get("log_every_batches", 5),
+        "log_every_steps": probe_cfg.get("log_every_steps", 5),
     }
 
     paths = resolve_probe_dir(run_dir, cfg)
@@ -259,10 +258,7 @@ def main(cfg: Any, run_dir: str):
     raw_label_names = _build_label_names(cfg, logger)
     
     raw_keys = sorted(list(label_map.get("raw_to_idx", {}).keys()))
-    preview = raw_keys[:10]
-    logger.info(
-        "[probe] label_map classes=%d raw_labels_preview=%s", len(raw_keys), preview
-    )
+    logger.info("[probe] label_map classes=%d", len(raw_keys))
     
     # Build idx → name mapping for metrics display
     idx_to_raw = label_map.get("idx_to_raw", {})
@@ -307,6 +303,26 @@ def main(cfg: Any, run_dir: str):
         len(train_loader),
     )
 
+    # Save probe metadata (architecture, classes, config)
+    probe_meta = {
+        "embed_dim": int(embed_dim),
+        "num_classes": num_classes,
+        "head_type": "linear",
+        "selection_metric": train_cfg.get("selection_metric", "macro_f1"),
+        "label_map": {
+            "raw_to_idx": label_map.get("raw_to_idx", {}),
+            "idx_to_raw": label_map.get("idx_to_raw", {}),
+        },
+        "label_names": label_names,
+        "probe_dataset": probe_dataset,
+        "fewshot": fewshot_cfg,
+        "train_config": train_cfg,
+    }
+    probe_meta_path = os.path.join(paths["base"], "probe_meta.json")
+    with open(probe_meta_path, "w") as f:
+        json.dump(probe_meta, f, indent=2)
+    logger.info("[probe] saved probe_meta.json to %s", probe_meta_path)
+
     head = LinearHead(embed_dim, num_classes).to(device)
     optimizer = torch.optim.AdamW(
         head.parameters(),
@@ -314,12 +330,12 @@ def main(cfg: Any, run_dir: str):
         weight_decay=float(train_cfg.get("weight_decay", 0.0)),
     )
 
-    num_epochs = int(train_cfg.get("num_epochs", 50))
+    num_epochs = int(train_cfg.get("num_epochs", 1000000))
     grad_clip = float(train_cfg.get("grad_clip_norm", 0.0))
     use_amp = bool(train_cfg.get("amp", True))
     selection_metric = train_cfg.get("selection_metric", "macro_f1")
-    patience = int(train_cfg.get("early_stop_patience", 5))
-    log_every_steps = int(train_cfg.get("log_every_steps", train_cfg.get("log_every_batches", 1))) or 1
+    patience = int(train_cfg.get("early_stop_patience", 20))
+    log_every_steps = int(train_cfg.get("log_every_steps", 5))
     scaler = GradScaler("cuda", enabled=use_amp)
 
     best_metric = -1e9
@@ -327,19 +343,20 @@ def main(cfg: Any, run_dir: str):
     epochs_no_improve = 0
 
     for epoch in range(1, num_epochs + 1):
-        logger.info("[probe] epoch %d/%d train...", epoch, num_epochs)
-        train_metrics = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps)
+        train_metrics = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps, epoch=epoch)
         val_metrics = eval_head(encoder, head, val_loader, label_map, device) if val_loader is not None else {}
 
-        # log
-        line_train = f"epoch={epoch} split=train " + format_metrics_txt(train_metrics)
-        write_metrics_line(paths["metrics"], line_train)
+        # Full metrics to file (includes per-class)
+        line_train_full = f"epoch={epoch} split=train " + format_metrics_txt(train_metrics)
+        write_metrics_line(paths["metrics"], line_train_full)
         if val_loader is not None:
-            line_val = f"epoch={epoch} split=val " + format_metrics_txt(val_metrics)
-            write_metrics_line(paths["metrics"], line_val)
-        logger.info(line_train)
+            line_val_full = f"epoch={epoch} split=val " + format_metrics_txt(val_metrics)
+            write_metrics_line(paths["metrics"], line_val_full)
+
+        # Summary to terminal (clean, one line per split)
+        print(f"epoch={epoch} split=train {format_metrics_summary(train_metrics)}")
         if val_loader is not None:
-            logger.info(line_val)
+            print(f"epoch={epoch} split=val {format_metrics_summary(val_metrics)}")
 
         # wandb logging
         if wandb is not None and wandb.run is not None:

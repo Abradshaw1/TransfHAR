@@ -1,21 +1,22 @@
-"""1D Masked Autoencoder objective (LSM-2 style) - MSE reconstruction on raw 1D signals.
+"""1D Masked Autoencoder objective (MAE / LSM-2 style).
 
-Architecture-agnostic objective for masked reconstruction pretraining.
-Works with any encoder/decoder pair that follows the interface:
-- encoder(x) → [B, embed_dim]  
-- decoder(z) → [B, C, T]
+Patch-level masking with dropout removal:
+- Encoder sees ONLY visible (unmasked) patches — no zero-filling
+- Decoder inserts learnable mask tokens and reconstructs per-patch
+- MSE loss computed only on masked patches
 
-The decoder is architecture-specific and should live with its encoder
-(e.g., CNN1DDecoder in models/CNN/, ViT1DDecoder in models/ViT1D/).
+Masking strategies (randomly selected per sample when strategy=composite):
+- random:   mask random patches uniformly
+- temporal: mask all channels at random time positions
+- signal:   mask all time positions for random channels
 
-Masking strategies (from config):
-- mask_random: fraction of timesteps to mask randomly
-- mask_temporal: probability of masking contiguous time blocks  
-- mask_signal: probability of masking entire channels
+Token layout: [C0_P0, C0_P1, ..., C0_Pt, C1_P0, ..., C1_Pt, ..., Cc_Pt]
+  where t = num_patches_per_channel - 1, c = num_channels - 1
 """
 
 from __future__ import annotations
 
+import random as pyrandom
 from typing import Any, Dict, Tuple
 
 import torch
@@ -25,54 +26,107 @@ import torch.nn.functional as F
 from imu_lm.utils.helpers import cfg_get
 
 
-def generate_mask(
-    x: torch.Tensor,
-    mask_random: float = 0.15,
-    mask_temporal: float = 0.0,
-    mask_signal: float = 0.0,
+def generate_patch_mask(
+    B: int,
+    num_patches_per_channel: int,
+    num_channels: int,
+    mask_ratio: float,
+    strategy: str,
+    device: torch.device,
 ) -> torch.Tensor:
-    """Generate a boolean mask for input tensor [B, C, T].
+    """Generate a patch-level boolean mask [B, N] where True = masked.
+    
+    All samples in the batch have the same number of masked tokens (num_mask)
+    so visible token counts are uniform — required for batched dropout removal.
+    
+    Token ordering: channel-major [C0_P0, C0_P1, ..., C1_P0, ...].
     
     Args:
-        x: Input tensor [B, C, T]
-        mask_random: Fraction of individual positions to mask randomly
-        mask_temporal: Probability of masking contiguous time blocks
-        mask_signal: Probability of masking entire channels
+        B: batch size
+        num_patches_per_channel: time patches per channel
+        num_channels: number of input channels (C)
+        mask_ratio: fraction of tokens to mask (0-1)
+        strategy: "random" | "temporal" | "signal" | "composite"
+        device: torch device
         
     Returns:
-        Boolean mask [B, C, T] where True = masked (to be predicted)
+        [B, N] boolean mask, True = masked, with exactly num_mask True per row
     """
-    B, C, T = x.shape
-    device = x.device
+    N = num_channels * num_patches_per_channel
+    num_mask = int(mask_ratio * N)
+    num_mask = max(1, min(num_mask, N - 1))  # keep at least 1 visible and 1 masked
     
-    mask = torch.zeros(B, C, T, dtype=torch.bool, device=device)
+    mask = torch.zeros(B, N, dtype=torch.bool, device=device)
     
-    # Random masking: mask individual positions
-    if mask_random > 0:
-        rand_mask = torch.rand(B, C, T, device=device) < mask_random
-        mask = mask | rand_mask
-    
-    # Temporal masking: mask contiguous time blocks
-    if mask_temporal > 0:
-        for b in range(B):
-            if torch.rand(1).item() < mask_temporal:
-                block_len = max(1, int(T * torch.rand(1).item() * 0.5))  # up to 50% of T
-                start = int(torch.randint(0, max(1, T - block_len), (1,)).item())
-                mask[b, :, start:start + block_len] = True
-    
-    # Signal/channel masking: mask entire channels
-    if mask_signal > 0:
-        for b in range(B):
-            for c in range(C):
-                if torch.rand(1).item() < mask_signal:
-                    mask[b, c, :] = True
-    
-    # Ensure at least some positions are masked
-    if not mask.any():
-        fallback = torch.rand(B, C, T, device=device) < 0.1
-        mask = mask | fallback
+    for b in range(B):
+        # Pick strategy for this sample
+        if strategy == "composite":
+            strat = pyrandom.choice(["random", "temporal", "signal"])
+        else:
+            strat = strategy
+        
+        if strat == "random":
+            # Uniformly random patch selection
+            perm = torch.randperm(N, device=device)
+            mask[b, perm[:num_mask]] = True
+            
+        elif strat == "temporal":
+            # Mask all channels at randomly selected time positions
+            num_time_to_mask = num_mask // num_channels
+            time_perm = torch.randperm(num_patches_per_channel, device=device)
+            times_to_mask = time_perm[:num_time_to_mask]
+            for c in range(num_channels):
+                mask[b, c * num_patches_per_channel + times_to_mask] = True
+            # Fill remainder to hit exact num_mask with random unmasked tokens
+            deficit = num_mask - int(mask[b].sum().item())
+            if deficit > 0:
+                unmasked = (~mask[b]).nonzero(as_tuple=False).squeeze(-1)
+                extras = unmasked[torch.randperm(len(unmasked), device=device)[:deficit]]
+                mask[b, extras] = True
+                
+        elif strat == "signal":
+            # Mask all time positions for randomly selected channels
+            num_ch_to_mask = max(1, min(num_mask // num_patches_per_channel, num_channels))
+            ch_perm = torch.randperm(num_channels, device=device)
+            for c in ch_perm[:num_ch_to_mask]:
+                start = int(c.item()) * num_patches_per_channel
+                mask[b, start:start + num_patches_per_channel] = True
+            # Fill remainder
+            deficit = num_mask - int(mask[b].sum().item())
+            if deficit > 0:
+                unmasked = (~mask[b]).nonzero(as_tuple=False).squeeze(-1)
+                extras = unmasked[torch.randperm(len(unmasked), device=device)[:deficit]]
+                mask[b, extras] = True
+            elif deficit < 0:
+                # Masked too many — unmask some randomly
+                surplus = -deficit
+                masked_idx = mask[b].nonzero(as_tuple=False).squeeze(-1)
+                to_unmask = masked_idx[torch.randperm(len(masked_idx), device=device)[:surplus]]
+                mask[b, to_unmask] = False
+        else:
+            raise ValueError(f"Unknown mask strategy: {strat}")
     
     return mask
+
+
+def _patch_mask_to_signal_mask(
+    patch_mask: torch.Tensor,
+    num_patches_per_channel: int,
+    num_channels: int,
+    patch_size: int,
+) -> torch.Tensor:
+    """Convert patch-level mask [B, N] to signal-level mask [B, C, T] for loss computation.
+    
+    Token ordering: channel-major [C0_P0, C0_P1, ..., C1_P0, ...].
+    """
+    B = patch_mask.shape[0]
+    # Reshape to [B, C, num_patches_per_channel]
+    patch_mask_2d = patch_mask.view(B, num_channels, num_patches_per_channel)
+    # Expand each patch to patch_size timesteps: [B, C, num_patches_per_channel, patch_size]
+    signal_mask = patch_mask_2d.unsqueeze(-1).expand(-1, -1, -1, patch_size)
+    # Flatten to [B, C, T]
+    signal_mask = signal_mask.reshape(B, num_channels, num_patches_per_channel * patch_size)
+    return signal_mask
 
 
 def forward_loss(
@@ -81,55 +135,50 @@ def forward_loss(
     decoder: nn.Module,
     cfg: Any,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """Compute 1D masked reconstruction loss (MSE on masked positions).
-    
-    Architecture-agnostic: works with any encoder/decoder pair that follows:
-    - encoder(x) → [B, embed_dim]
-    - decoder(z) → [B, C, T]
+    """MAE forward: patch masking → encoder (visible only) → decoder → MSE on masked patches.
     
     Args:
         batch: (x, y) where x is [B, C, T] raw 1D signal
-        encoder: Any encoder that maps [B, C, T] → [B, embed_dim]
-        decoder: Any decoder that maps [B, embed_dim] → [B, C, T]
+        encoder: ViT1DEncoder with forward(x, mask=None) or forward(x, mask=[B,N])
+        decoder: ViT1DDecoder with forward(visible_tokens, mask, npc, nc)
         cfg: Config dict with objective.* params
         
     Returns:
-        loss: Scalar MSE loss on masked positions
-        logs: Dict with loss value and mask stats
+        loss: Scalar MSE loss on masked patch positions
+        logs: Dict with loss, mask_ratio, strategy stats
     """
-    x, _ = batch  # x: [B, C, T], y: labels (unused for reconstruction)
+    x, _ = batch  # x: [B, C, T]
+    B, C, T = x.shape
     
-    # Get masking config
     obj_cfg = cfg_get(cfg, ["objective"], {}) or {}
-    mask_random = float(obj_cfg.get("mask_random", 0.15))
-    mask_temporal = float(obj_cfg.get("mask_temporal", 0.0))
-    mask_signal = float(obj_cfg.get("mask_signal", 0.0))
-    skip_missing = bool(obj_cfg.get("skip_missing", True))
+    mask_ratio = float(obj_cfg.get("mask_ratio", 0.75))
+    strategy = str(obj_cfg.get("mask_strategy", "composite"))
     
-    # Generate mask
-    mask = generate_mask(x, mask_random, mask_temporal, mask_signal)
+    patch_size = encoder.patch_size
+    num_patches_per_channel = T // patch_size
     
-    # Create masked input (zero out masked positions)
-    x_masked = x.clone()
-    x_masked[mask] = 0.0
+    # Generate patch-level mask [B, N], True = masked (removed from encoder)
+    patch_mask = generate_patch_mask(B, num_patches_per_channel, C, mask_ratio, strategy, x.device)
     
-    # Encode masked input → embedding
-    z = encoder(x_masked)  # [B, embed_dim]
+    # Encoder: only visible patches go through transformer
+    visible_tokens = encoder(x, mask=patch_mask)  # [B, N_vis, D]
     
-    # Decode → reconstruction
-    reconstructed = decoder(z)  # [B, C, T]
+    # Decoder: insert mask tokens, reconstruct full signal
+    reconstructed = decoder(visible_tokens, patch_mask, num_patches_per_channel, C)  # [B, C, T]
     
-    # MSE loss on masked positions only
-    if skip_missing:
-        masked_pred = reconstructed[mask]
-        masked_target = x[mask]
-        loss = F.mse_loss(masked_pred, masked_target)
-    else:
-        loss = F.mse_loss(reconstructed, x)
+    # MSE loss on masked patches only
+    signal_mask = _patch_mask_to_signal_mask(patch_mask, num_patches_per_channel, C, patch_size)
+    # Trim signal_mask if reconstructed is shorter (shouldn't happen normally)
+    T_recon = reconstructed.shape[-1]
+    if T_recon < signal_mask.shape[-1]:
+        signal_mask = signal_mask[:, :, :T_recon]
+        x = x[:, :, :T_recon]
     
-    mask_ratio = mask.float().mean().item()
+    loss = F.mse_loss(reconstructed[signal_mask], x[signal_mask])
+    
+    actual_ratio = float(patch_mask.float().mean().item())
     
     return loss, {
         "loss": float(loss.detach().item()),
-        "mask_ratio": mask_ratio,
+        "mask_ratio": actual_ratio,
     }

@@ -54,19 +54,36 @@ Writes logs/checkpoints/artifacts under `runs/<run_name>/`.
 
 ### 5) Linear probe train (Stage B)
 ```bash
-python scripts/run_probe_train.py --config configs/base.yaml --probe-config configs/probe.yaml --run <run_name>
+python scripts/run_probe_train.py --config configs/base.yaml --probe-config configs/probe.yaml --run <encoder_run_name>
 ```
-Loads the frozen encoder from `runs/<run_name>/artifacts/encoder.pt`, trains a linear head on the probe dataset, and writes to `runs/<run_name>/probe/`.
+Loads the frozen encoder from `runs/<encoder_run_name>/`, trains a linear head on the probe dataset (SAMoSA by default), and writes probe outputs to `runs/<encoder_run_name>/probe/`.
+
+> **Note:** The probe lives *inside* the encoder's run directory. Use the **encoder run name** (e.g. `test_new_mae`) for both probe train and eval. There is no separate probe run name.
 
 ### 6) Probe eval
 ```bash
-python scripts/run_probe_eval.py --config configs/base.yaml --probe-config configs/probe.yaml --run <run_name>
+python scripts/run_probe_eval.py --config configs/base.yaml --probe-config configs/probe.yaml --run <encoder_run_name>
 ```
-Evaluates the best head on the frozen encoder, writes `metrics.txt` and `summary.txt` in `runs/<run_name>/probe/`.
+Loads the best probe head from `runs/<encoder_run_name>/probe/checkpoints/best.pt` and evaluates on the test split. Writes `metrics.txt` and `summary.txt` in `runs/<encoder_run_name>/probe/`.
 
 ## Runs directory contract
-- `logs/stdout.log` — tee of stdout/stderr with resolved config header.
-- `logs/metrics.txt` — key=value lines; every line starts with `step=` or `epoch=`.
-- `checkpoints/` — `latest.pt`, optional periodic `step_*.pt`.
-- `artifacts/encoder.pt`, `artifacts/encoder_meta.json` — frozen encoder + metadata.
-- `probe/` — probe logs, checkpoints (`latest.pt`, `best.pt`), `metrics.txt`, `summary.txt`.
+```
+runs/<encoder_run_name>/
+├── logs/
+│   ├── stdout.log              # tee of stdout/stderr with resolved config header
+│   └── metrics.txt             # key=value lines; every line starts with step= or epoch=
+├── checkpoints/
+│   ├── latest.pt               # encoder + decoder checkpoint
+│   └── best.pt                 # best by val_loss (if validation enabled)
+├── artifacts/
+│   └── encoder_meta.json       # encoder architecture metadata
+└── probe/                      # created by run_probe_train.py
+    ├── checkpoints/
+    │   ├── best.pt             # head weights at best val macro_f1
+    │   └── latest.pt           # head weights after last epoch
+    ├── logs/
+    │   └── metrics.txt         # per-epoch train/val/test metrics (includes per-class)
+    └── summary.txt             # JSON: best_epoch, test results, num_classes
+```
+
+The probe checkpoint (`best.pt`) contains the head state_dict, optimizer state, and full `label_map` (class mapping, label names, embedding dim). This is self-contained — `run_probe_eval.py` reconstructs the head architecture from it.

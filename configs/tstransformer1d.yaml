@@ -18,12 +18,8 @@ tstransformer1d:
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
   type: mae                # mae | supervised
-  # MAE-specific (masked_1d)
-  loss: mse
-  skip_missing: true
-  mask_random: 0.8
-  mask_temporal: 0.5
-  mask_signal: 0.5
+  mask_ratio: 0.75
+  mask_strategy: composite
 
 trainer:
   seed: 42

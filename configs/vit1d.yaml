@@ -23,10 +23,8 @@ vit1d:
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
   type: mae                 # mae | supervised
-  mask_random: 0.50         # random masking
-  mask_temporal: 0.30       # temporal block masking  
-  mask_signal: 0.30         # channel/signal masking
-  skip_missing: true        # Don't backprop on already-missing values
+  mask_ratio: 0.65          # fraction of patches to mask (removed from encoder)
+  mask_strategy: composite  # random | temporal | signal | composite (picks one per sample)
 
 trainer:
   seed: 42
@@ -34,7 +32,7 @@ trainer:
   max_steps: 10000000
   grad_clip_norm: 1.0
   grad_accum_steps: 1
-  val_every_steps: 100
+  val_every_steps: 5000
 
   optim:
     name: adamw
@@ -45,9 +43,9 @@ trainer:
 
   sched:
     name: cosine
-    warmup_steps: 100
+    warmup_steps: 1000
 
   early_stopping:
     enabled: true
     monitor: val_loss
-    patience: 10
+    patience: 20

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Any, Dict, Iterable
 
 import numpy as np
@@ -62,7 +63,9 @@ def eval_head(
     if n_samples == 0:
         return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}
 
-    metrics = compute_metrics(y_true, y_pred, label_names=label_names)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        metrics = compute_metrics(y_true, y_pred, label_names=label_names)
     acc = float((np.asarray(y_true) == np.asarray(y_pred)).mean())
     metrics.update({"loss": total_loss / n_samples, "acc": acc})
     return metrics

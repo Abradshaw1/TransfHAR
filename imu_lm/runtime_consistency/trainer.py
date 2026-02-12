@@ -95,7 +95,8 @@ class Trainer:
                 print(f"[resume] epoch={self._epoch} best_val_loss={self.best_val_loss:.6f} patience_count={self.epochs_without_improvement}")
         metrics_f = open(self.metrics_path, "a", buffering=1)
 
-        while step < self.max_steps:
+        stop = False
+        while step < self.max_steps and not stop:
             self._epoch += 1
             for batch in train_loader:
                 if batch is None:
@@ -144,19 +145,22 @@ class Trainer:
                 # Periodic in-training validation
                 if self.val_every > 0 and val_loader is not None and step % self.val_every == 0:
                     if self._run_val(val_loader, model, objective_step, optimizer, scheduler, step, metrics_f):
+                        stop = True
                         break  # early stopping triggered
 
                 if step >= self.max_steps:
                     break
 
             # Epoch-end validation (only if val_every_steps is not set)
-            if val_loader is not None and self.val_every <= 0:
+            if not stop and val_loader is not None and self.val_every <= 0:
                 if self._run_val(val_loader, model, objective_step, optimizer, scheduler, step, metrics_f):
-                    break  # early stopping triggered
+                    stop = True
 
         metrics_f.close()
         # final checkpoint
         self._save_ckpt(model, optimizer, scheduler, step)
+        reason = "early stopping" if stop else ("max_steps reached" if step >= self.max_steps else "data exhausted")
+        print(f"[train] run complete: {reason} at step={step} epoch={self._epoch}")
 
     def _run_val(self, val_loader, model, objective_step, optimizer, scheduler, step, metrics_f):
         """Run validation, update scheduler/early-stopping. Returns True if early stopping triggered."""

@@ -1,14 +1,16 @@
-"""ViT-1D encoder and decoder for raw 1D IMU/sensor data (LSM-2 style architecture).
+"""ViT-1D encoder and decoder for raw 1D IMU/sensor data (MAE / LSM-2 style).
 
-Encoder: [B, C, T] → [B, embed_dim]
+Encoder: [B, C, T] → [B, D] (probing) or [B, N_vis, D] (MAE training)
 - 1D patch embedding with shared kernel across channels
 - 2D positional embedding (time + channel)
+- Dropout removal: masked patches removed before transformer (MAE training)
 - Transformer encoder layers
-- Mean pooling over tokens
+- Mean pooling over tokens (probing only)
 
-Decoder: [B, embed_dim] → [B, C, T]
-- Lightweight transformer decoder
-- Projects back to input space
+Decoder: visible encoder tokens + mask → [B, C, T]
+- Learnable mask token inserted at masked positions
+- Lightweight transformer decoder over full sequence
+- Per-patch prediction head
 
 Architecture-specific components live here; objective is architecture-agnostic.
 """
@@ -168,8 +170,18 @@ class ViT1DEncoder(nn.Module):
         
         self.norm = nn.LayerNorm(self.embed_dim)
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """[B, C, T] → [B, embed_dim]."""
+    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+        """Forward pass with optional MAE masking.
+        
+        Args:
+            x: [B, C, T] raw input signal
+            mask: [B, N] boolean, True = masked (removed before transformer).
+                  If None, process all tokens and return mean-pooled [B, D].
+                  
+        Returns:
+            If mask is None: [B, D] mean-pooled embedding (for probing/eval)
+            If mask given:   [B, N_vis, D] per-token visible outputs (for MAE decoder)
+        """
         B, C, T = x.shape
         num_patches_per_channel = T // self.patch_size
         
@@ -180,11 +192,22 @@ class ViT1DEncoder(nn.Module):
         pos_embed = self.pos_embed(num_patches_per_channel, C, x.device)
         tokens = tokens + pos_embed.unsqueeze(0)
         
+        if mask is not None:
+            # Dropout removal: keep only visible tokens
+            # Sort so visible (False=0) come first, then masked (True=1)
+            ids_shuffle = torch.argsort(mask.int(), dim=1)
+            N_vis = (~mask[0]).sum().item()
+            ids_keep = ids_shuffle[:, :N_vis]  # [B, N_vis]
+            tokens = torch.gather(tokens, 1, ids_keep.unsqueeze(-1).expand(-1, -1, self.embed_dim))
+        
         # Transformer encoder
         tokens = self.encoder(tokens)
         tokens = self.norm(tokens)
         
-        # Pooling: [B, N, D] → [B, D]
+        if mask is not None:
+            return tokens  # [B, N_vis, D] for MAE decoder
+        
+        # Pooling: [B, N, D] → [B, D] for probing
         if self.pooling == "mean":
             out = tokens.mean(dim=1)
         elif self.pooling == "cls":
@@ -196,16 +219,21 @@ class ViT1DEncoder(nn.Module):
 
 
 class ViT1DDecoder(nn.Module):
-    """ViT-1D Decoder: [B, embed_dim] → [B, C, T].
+    """ViT-1D MAE Decoder: visible encoder tokens + mask → [B, C, T].
     
-    Lightweight transformer decoder for reconstruction.
-    This is throwaway after pretraining - only encoder is kept.
+    Standard MAE decoder (He et al.):
+    1. Project visible encoder tokens to decoder dimension
+    2. Insert learnable mask tokens at masked positions
+    3. Add positional embeddings to full sequence
+    4. Lightweight transformer over full sequence
+    5. Per-patch linear head → reconstruct raw values
+    
+    Throwaway after pretraining — only encoder is kept for probing.
     """
     
     def __init__(self, embed_dim: int, out_channels: int, target_T: int, cfg: Any):
         super().__init__()
         
-        # Get decoder config (nested under vit1d.decoder)
         vit_cfg = cfg_get(cfg, ["vit1d"], {}) or {}
         dec_cfg = vit_cfg.get("decoder", {}) or {}
         
@@ -214,29 +242,27 @@ class ViT1DDecoder(nn.Module):
         self.target_T = target_T
         self.patch_size = int(vit_cfg.get("patch_size", 16))
         
-        # Decoder config
         hidden_size = int(dec_cfg.get("hidden_size", 192))
         num_layers = int(dec_cfg.get("num_hidden_layers", 4))
         num_heads = int(dec_cfg.get("num_attention_heads", 4))
         mlp_ratio = float(dec_cfg.get("intermediate_size", 768)) / hidden_size
         
-        # Number of output patches
         self.num_patches_per_channel = target_T // self.patch_size
         self.num_patches = out_channels * self.num_patches_per_channel
+        self.hidden_size = hidden_size
         
-        # Project from encoder embed_dim to decoder hidden_size
-        self.embed_to_decoder = nn.Linear(embed_dim, hidden_size)
+        # Project encoder dim → decoder dim
+        self.encoder_to_decoder = nn.Linear(embed_dim, hidden_size)
         
-        # Learnable query tokens for reconstruction
-        self.query_tokens = nn.Parameter(torch.zeros(1, self.num_patches, hidden_size))
-        nn.init.trunc_normal_(self.query_tokens, std=0.02)
+        # Learnable mask token (shared across all masked positions)
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
+        nn.init.trunc_normal_(self.mask_token, std=0.02)
         
-        # Positional embedding for decoder
+        # Positional embedding for full sequence
         max_patches = int(vit_cfg.get("max_patches_per_channel", 256))
         max_channels = int(vit_cfg.get("max_channels", 32))
         self.pos_embed = PositionalEmbedding2D(max_patches, max_channels, hidden_size)
         
-        # Use PyTorch's built-in transformer encoder (used as decoder here)
         decoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_size,
             nhead=num_heads,
@@ -250,39 +276,65 @@ class ViT1DDecoder(nn.Module):
         
         self.norm = nn.LayerNorm(hidden_size)
         
-        # Project to patch values: each token → patch_size values
+        # Per-patch prediction: each token → patch_size raw values
         self.head = nn.Linear(hidden_size, self.patch_size)
     
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        """[B, embed_dim] → [B, C, T]."""
-        B = z.shape[0]
+    def forward(
+        self,
+        visible_tokens: torch.Tensor,
+        mask: torch.Tensor,
+        num_patches_per_channel: int,
+        num_channels: int,
+    ) -> torch.Tensor:
+        """Reconstruct full signal from visible encoder tokens + mask.
         
-        # Project encoder output and expand to sequence
-        z_proj = self.embed_to_decoder(z)  # [B, hidden_size]
+        Args:
+            visible_tokens: [B, N_vis, D_enc] encoder output for visible patches
+            mask: [B, N] boolean, True = masked
+            num_patches_per_channel: time patches per channel
+            num_channels: number of input channels (C)
+            
+        Returns:
+            [B, C, T] reconstructed signal
+        """
+        B = visible_tokens.shape[0]
+        N = mask.shape[1]
+        N_vis = visible_tokens.shape[1]
+        N_mask = N - N_vis
         
-        # Use learnable queries + encoder context
-        queries = self.query_tokens.expand(B, -1, -1)  # [B, N, hidden_size]
+        # Project visible tokens to decoder dim
+        visible_dec = self.encoder_to_decoder(visible_tokens)  # [B, N_vis, D_dec]
+        
+        # Expand mask tokens
+        mask_tokens = self.mask_token.expand(B, N_mask, -1)  # [B, N_mask, D_dec]
+        
+        # Combine visible + mask tokens, then unshuffle to original positions
+        # ids_shuffle puts visible indices first (same sorting as encoder)
+        ids_shuffle = torch.argsort(mask.int(), dim=1)
+        ids_restore = torch.argsort(ids_shuffle, dim=1)  # maps shuffled → original
+        
+        combined = torch.cat([visible_dec, mask_tokens], dim=1)  # [B, N, D_dec]
+        full_tokens = torch.gather(
+            combined, 1,
+            ids_restore.unsqueeze(-1).expand(-1, -1, self.hidden_size),
+        )  # [B, N, D_dec] in original token order
         
         # Add positional embedding
-        pos_embed = self.pos_embed(self.num_patches_per_channel, self.out_channels, z.device)
-        queries = queries + pos_embed.unsqueeze(0)
-        
-        # Add encoder context to all queries
-        queries = queries + z_proj.unsqueeze(1)
+        pos_embed = self.pos_embed(num_patches_per_channel, num_channels, visible_tokens.device)
+        full_tokens = full_tokens + pos_embed.unsqueeze(0)
         
         # Transformer decoder
-        queries = self.decoder(queries)
-        queries = self.norm(queries)
+        full_tokens = self.decoder(full_tokens)
+        full_tokens = self.norm(full_tokens)
         
-        # Project to patch values: [B, N, hidden_size] → [B, N, patch_size]
-        patch_values = self.head(queries)  # [B, N, patch_size]
+        # Predict patch values: [B, N, D_dec] → [B, N, patch_size]
+        patch_values = self.head(full_tokens)
         
         # Reshape to [B, C, T]
-        # Tokens are ordered: [C0_P0, C0_P1, ..., C1_P0, C1_P1, ...]
-        patch_values = patch_values.view(B, self.out_channels, self.num_patches_per_channel, self.patch_size)
-        out = patch_values.view(B, self.out_channels, self.num_patches_per_channel * self.patch_size)
+        # Token ordering: [C0_P0, C0_P1, ..., C1_P0, C1_P1, ...]
+        patch_values = patch_values.view(B, num_channels, num_patches_per_channel, self.patch_size)
+        out = patch_values.reshape(B, num_channels, num_patches_per_channel * self.patch_size)
         
-        # Interpolate to exact target length if needed
         if out.shape[-1] != self.target_T:
             out = torch.nn.functional.interpolate(out, size=self.target_T, mode='linear', align_corners=False)
         

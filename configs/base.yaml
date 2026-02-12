@@ -18,7 +18,7 @@ data:
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
   sensor_columns: [acc_x, acc_y, acc_z]
-  train_on_datasets: ["capture24", "opportunity++", "pamap2", "recofit", "ut_watch", "wisdm", "wear"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
+  train_on_datasets: ["wear"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
   num_workers: 8
   pin_memory: true
