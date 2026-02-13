@@ -23,8 +23,10 @@ vit1d:
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
   type: mae                 # mae | supervised
-  mask_ratio: 0.65          # fraction of patches to mask (removed from encoder)
-  mask_strategy: composite  # random | temporal | signal | composite (picks one per sample)
+  mask_strategy: composite  # random | temporal | signal | composite (picks one per batch)
+  random_mask_ratio: 0.8    # LSM-2: 80% for random
+  temporal_mask_ratio: 0.5  # LSM-2: 50% for temporal
+  signal_mask_ratio: 0.5    # LSM-2: 50% for signal
 
 trainer:
   seed: 42

@@ -112,7 +112,7 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
     )
 
 
-def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int, epoch: int = 0):
+def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int, epoch: int = 0, global_step: int = 0):
     encoder.eval()
     head.train()
     total_loss = 0.0
@@ -130,6 +130,7 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
         x, y = select_mapped_batch(x, y_raw, raw_to_idx, device, unknown_raw_id=unknown_id)
         if x is None:
             continue
+        global_step += 1
         optimizer.zero_grad(set_to_none=True)
         with autocast("cuda", enabled=use_amp):
             with torch.no_grad():
@@ -156,17 +157,20 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
                 step_metrics = compute_metrics(y.cpu().tolist(), preds.cpu().tolist()) if y.numel() > 0 else {}
             step_metrics["loss"] = float(loss.detach().item())
             step_metrics["acc"] = float((preds == y).float().mean().item())
-            print(f"epoch={epoch} step={batch_idx} split=train {format_metrics_summary(step_metrics)}")
+            print(f"epoch={epoch} step={global_step} split=train {format_metrics_summary(step_metrics)}")
+            if wandb is not None and wandb.run is not None:
+                wb_train = {f"probe_train/{k}": v for k, v in step_metrics.items() if isinstance(v, (int, float))}
+                wandb.log(wb_train, step=global_step)
 
     if n_samples == 0:
-        return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}
+        return {"loss": 0.0, "acc": 0.0, "bal_acc": 0.0, "macro_f1": 0.0}, global_step
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         metrics = compute_metrics(y_true, y_pred)
     metrics["loss"] = total_loss / n_samples
     metrics["acc"] = float(np.mean(np.array(y_true) == np.array(y_pred)))
-    return metrics
+    return metrics, global_step
 
 
 def _apply_probe_batch_size(cfg: Any, probe_cfg: Dict[str, Any]):
@@ -342,8 +346,9 @@ def main(cfg: Any, run_dir: str):
     best_epoch = -1
     epochs_no_improve = 0
 
+    global_step = 0
     for epoch in range(1, num_epochs + 1):
-        train_metrics = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps, epoch=epoch)
+        train_metrics, global_step = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps, epoch=epoch, global_step=global_step)
         val_metrics = eval_head(encoder, head, val_loader, label_map, device) if val_loader is not None else {}
 
         # Full metrics to file (includes per-class)
@@ -358,12 +363,10 @@ def main(cfg: Any, run_dir: str):
         if val_loader is not None:
             print(f"epoch={epoch} split=val {format_metrics_summary(val_metrics)}")
 
-        # wandb logging
-        if wandb is not None and wandb.run is not None:
-            wb = {f"probe_train/{k}": v for k, v in train_metrics.items() if isinstance(v, (int, float))}
-            if val_metrics:
-                wb.update({f"probe_val/{k}": v for k, v in val_metrics.items() if isinstance(v, (int, float))})
-            wandb.log(wb, step=epoch)
+        # wandb: val metrics logged per epoch at current global_step
+        if wandb is not None and wandb.run is not None and val_metrics:
+            wb_val = {f"probe_val/{k}": v for k, v in val_metrics.items() if isinstance(v, (int, float))}
+            wandb.log(wb_val, step=global_step)
 
         # checkpoints
         save_checkpoint(paths["latest"], head, optimizer, epoch, label_map)
