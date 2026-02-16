@@ -9,7 +9,7 @@ probe:
   drop_unknown: false
   min_count_per_class: 0
   fewshot_enabled: false
-  fewshot_shots_per_class: 5 # 1 shot = 1 window of data
+  fewshot_shots_per_class: [1, 5, 10, 25, 50] # single int or list; list triggers sweep over all k values
   fewshot_seed: 0
   num_epochs: 1000000 # set high to converge by metric
   batch_size: 256

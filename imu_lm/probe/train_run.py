@@ -4,19 +4,16 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import warnings
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict
 
 import logging
 
 import numpy as np
-import pandas as pd
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.amp import GradScaler, autocast
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 
 from imu_lm.data.loaders import make_loaders
 from imu_lm.probe.eval import eval_head
@@ -78,41 +75,7 @@ def _build_label_names(cfg: Any, logger: logging.Logger) -> Dict[int, str]:
         return {}
 
 
-def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_class: int, seed: int) -> DataLoader:
-    raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
-    dataset = loader.dataset
-    rng = random.Random(seed)
-    per_class: Dict[int, List[int]] = {idx: [] for idx in raw_to_idx.values()}
-
-    for idx in range(len(dataset)):
-        item = dataset[idx]
-        if item is None:
-            continue
-        _, y = item
-        raw = int(y)
-        if raw not in raw_to_idx:
-            continue
-        mapped = raw_to_idx[raw]
-        per_class[mapped].append(idx)
-
-    keep_indices: List[int] = []
-    for cls_idx, idxs in per_class.items():
-        rng.shuffle(idxs)
-        keep_indices.extend(idxs[: shots_per_class])
-
-    subset = Subset(dataset, keep_indices)
-    return DataLoader(
-        subset,
-        batch_size=loader.batch_size,
-        shuffle=True,
-        num_workers=loader.num_workers,
-        pin_memory=loader.pin_memory,
-        drop_last=False,
-        collate_fn=loader.collate_fn,
-    )
-
-
-def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int, epoch: int = 0, global_step: int = 0):
+def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int, epoch: int = 0, global_step: int = 0, wb_prefix: str = "probe"):
     encoder.eval()
     head.train()
     total_loss = 0.0
@@ -159,7 +122,7 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
             step_metrics["acc"] = float((preds == y).float().mean().item())
             print(f"epoch={epoch} step={global_step} split=train {format_metrics_summary(step_metrics)}")
             if wandb is not None and wandb.run is not None:
-                wb_train = {f"probe_train/{k}": v for k, v in step_metrics.items() if isinstance(v, (int, float))}
+                wb_train = {f"{wb_prefix}_train/{k}": v for k, v in step_metrics.items() if isinstance(v, (int, float))}
                 wandb.log(wb_train, step=global_step)
 
     if n_samples == 0:
@@ -188,22 +151,14 @@ def _apply_probe_batch_size(cfg: Any, probe_cfg: Dict[str, Any]):
         cfg.data.eval_batch_size = bs
 
 
-def main(cfg: Any, run_dir: str):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def setup_probe(cfg: Any, run_dir: str) -> Dict[str, Any]:
+    """Shared setup: load encoder, build loaders, label map, infer embed dim.
 
+    Returns a dict with all objects needed by run_probe().
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     probe_cfg = cfg.get("probe", {}) if isinstance(cfg, dict) else getattr(cfg, "probe", {})
     unknown_id = probe_cfg.get("unknown_id", cfg_get(cfg, ["data", "unknown_label_id"], None))
-    # Flattened probe config: labels/fewshot/train fields are now directly under probe
-    labels_cfg = {
-        "unknown_id": unknown_id,
-        "drop_unknown": probe_cfg.get("drop_unknown", True),
-        "min_count_per_class": probe_cfg.get("min_count_per_class", 0),
-    }
-    fewshot_cfg = {
-        "enabled": probe_cfg.get("fewshot_enabled", False),
-        "shots_per_class": probe_cfg.get("fewshot_shots_per_class", 5),
-        "seed": probe_cfg.get("fewshot_seed", 0),
-    }
     train_cfg = {
         "num_epochs": probe_cfg.get("num_epochs", 1000000),
         "batch_size": probe_cfg.get("batch_size", 256),
@@ -215,11 +170,7 @@ def main(cfg: Any, run_dir: str):
         "selection_metric": probe_cfg.get("selection_metric", "macro_f1"),
         "log_every_steps": probe_cfg.get("log_every_steps", 5),
     }
-
-    paths = resolve_probe_dir(run_dir, cfg)
-    # ensure probe batch size overrides loaders
     _apply_probe_batch_size(cfg, probe_cfg)
-
     logger = logging.getLogger(__name__)
 
     logger.info("[probe] loading encoder from %s", run_dir)
@@ -242,28 +193,26 @@ def main(cfg: Any, run_dir: str):
         raise RuntimeError("probe_train_loader missing; ensure make_loaders returns probe splits")
 
     logger.info(
-        "[probe] splits sessions (by loaders): train=%d val=%d test=%d",
+        "[probe] splits (by loaders): train=%d val=%d test=%d",
         len(train_loader.dataset),
         len(val_loader.dataset) if val_loader else 0,
         len(test_loader.dataset) if test_loader else 0,
     )
 
-    unknown_id = labels_cfg.get("unknown_id", None)
-    drop_unknown = bool(labels_cfg.get("drop_unknown", True))
-    min_count = int(labels_cfg.get("min_count_per_class", 0))
+    drop_unknown = bool(probe_cfg.get("drop_unknown", True))
+    min_count = int(probe_cfg.get("min_count_per_class", 0))
     label_map = build_label_map(
         train_loader, cfg,
         unknown_id=unknown_id,
         drop_unknown=drop_unknown,
         min_count=min_count,
     )
-    
+
     # Build activity name mapping (dataset_activity_id → string name)
     raw_label_names = _build_label_names(cfg, logger)
-    
     raw_keys = sorted(list(label_map.get("raw_to_idx", {}).keys()))
     logger.info("[probe] label_map classes=%d", len(raw_keys))
-    
+
     # Build idx → name mapping for metrics display
     idx_to_raw = label_map.get("idx_to_raw", {})
     label_names = {}
@@ -271,13 +220,7 @@ def main(cfg: Any, run_dir: str):
         label_names[idx] = raw_label_names.get(raw, str(raw))
     label_map["label_names"] = label_names
 
-    if fewshot_cfg.get("enabled", False):
-        shots = int(fewshot_cfg.get("shots_per_class", 5))
-        seed = int(fewshot_cfg.get("seed", 0))
-        train_loader = _fewshot_subset(train_loader, label_map, shots, seed)
-        logger.info("[probe] fewshot enabled: shots_per_class=%d seed=%d", shots, seed)
-
-    # Determine embedding dim and num_classes
+    # Determine embedding dim
     num_classes = len(label_map.get("raw_to_idx", {}))
     if num_classes == 0:
         raise RuntimeError("No probe classes found after filtering; check labels/unknown handling")
@@ -298,16 +241,29 @@ def main(cfg: Any, run_dir: str):
             break
     if embed_dim is None:
         raise RuntimeError("Could not infer embedding dim from encoder/meta")
-
     label_map["embedding_dim"] = int(embed_dim)
-    logger.info(
-        "[probe] ready: embed_dim=%d num_classes=%d train_batches=%d",
-        embed_dim,
-        num_classes,
-        len(train_loader),
-    )
 
-    # Save probe metadata (architecture, classes, config)
+    logger.info("[probe] ready: embed_dim=%d num_classes=%d", embed_dim, num_classes)
+    return {
+        "device": device, "encoder": encoder, "train_cfg": train_cfg,
+        "train_loader": train_loader, "val_loader": val_loader,
+        "test_loader": test_loader, "label_map": label_map,
+        "label_names": label_names, "embed_dim": embed_dim,
+        "num_classes": num_classes, "probe_dataset": probe_dataset,
+        "logger": logger,
+    }
+
+
+def run_probe(
+    encoder, train_loader, val_loader, test_loader, label_map, label_names,
+    embed_dim, num_classes, train_cfg, paths, probe_dataset, device, logger,
+    wb_prefix: str = "probe", extra_meta: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Train a linear probe to convergence → test eval → summary.
+
+    Used by both train_run.main() and fewshot_train_run.main().
+    """
+    # Save probe metadata
     probe_meta = {
         "embed_dim": int(embed_dim),
         "num_classes": num_classes,
@@ -319,13 +275,14 @@ def main(cfg: Any, run_dir: str):
         },
         "label_names": label_names,
         "probe_dataset": probe_dataset,
-        "fewshot": fewshot_cfg,
         "train_config": train_cfg,
     }
+    if extra_meta:
+        probe_meta.update(extra_meta)
     probe_meta_path = os.path.join(paths["base"], "probe_meta.json")
     with open(probe_meta_path, "w") as f:
         json.dump(probe_meta, f, indent=2)
-    logger.info("[probe] saved probe_meta.json to %s", probe_meta_path)
+    logger.info("[%s] saved probe_meta.json to %s", wb_prefix, probe_meta_path)
 
     head = LinearHead(embed_dim, num_classes).to(device)
     optimizer = torch.optim.AdamW(
@@ -348,7 +305,7 @@ def main(cfg: Any, run_dir: str):
 
     global_step = 0
     for epoch in range(1, num_epochs + 1):
-        train_metrics, global_step = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps, epoch=epoch, global_step=global_step)
+        train_metrics, global_step = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps, epoch=epoch, global_step=global_step, wb_prefix=wb_prefix)
         val_metrics = eval_head(encoder, head, val_loader, label_map, device) if val_loader is not None else {}
 
         # Full metrics to file (includes per-class)
@@ -365,7 +322,7 @@ def main(cfg: Any, run_dir: str):
 
         # wandb: val metrics logged per epoch at current global_step
         if wandb is not None and wandb.run is not None and val_metrics:
-            wb_val = {f"probe_val/{k}": v for k, v in val_metrics.items() if isinstance(v, (int, float))}
+            wb_val = {f"{wb_prefix}_val/{k}": v for k, v in val_metrics.items() if isinstance(v, (int, float))}
             wandb.log(wb_val, step=global_step)
 
         # checkpoints
@@ -381,7 +338,7 @@ def main(cfg: Any, run_dir: str):
             best_epoch = epoch
             epochs_no_improve = 0
             save_checkpoint(paths["best"], head, optimizer, epoch, label_map)
-            logger.info("[probe] new best %s=%.6f at epoch %d; saved %s", selection_metric, best_metric, epoch, paths["best"])
+            logger.info("[%s] new best %s=%.6f at epoch %d; saved %s", wb_prefix, selection_metric, best_metric, epoch, paths["best"])
         else:
             epochs_no_improve += 1
 
@@ -402,7 +359,23 @@ def main(cfg: Any, run_dir: str):
         "best_metric": best_metric,
         "test": test_metrics,
         "num_classes": num_classes,
-        "shots_per_class": fewshot_cfg.get("shots_per_class") if fewshot_cfg.get("enabled", False) else None,
     }
+    if extra_meta:
+        summary.update(extra_meta)
     write_summary(paths["summary"], summary)
-    logger.info("[probe] summary written to %s", paths["summary"])
+    logger.info("[%s] summary written to %s", wb_prefix, paths["summary"])
+    return summary
+
+
+def main(cfg: Any, run_dir: str):
+    ctx = setup_probe(cfg, run_dir)
+    paths = resolve_probe_dir(run_dir, cfg)
+    run_probe(
+        encoder=ctx["encoder"], train_loader=ctx["train_loader"],
+        val_loader=ctx["val_loader"], test_loader=ctx["test_loader"],
+        label_map=ctx["label_map"], label_names=ctx["label_names"],
+        embed_dim=ctx["embed_dim"], num_classes=ctx["num_classes"],
+        train_cfg=ctx["train_cfg"], paths=paths,
+        probe_dataset=ctx["probe_dataset"], device=ctx["device"],
+        logger=ctx["logger"],
+    )

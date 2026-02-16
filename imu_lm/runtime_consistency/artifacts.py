@@ -46,8 +46,13 @@ def _build_encoder_from_cfg(backbone: str, cfg: Any):
     if backbone == "vit1d":
         from imu_lm.models.ViT1D.model import ViT1DEncoder
         return ViT1DEncoder(cfg)
-    elif backbone in ("vit", "vit2d"):
+    elif backbone in ("vit", "vit2d", "vit_mae_scratch") or (isinstance(backbone, str) and "vit-mae" in backbone):
         from imu_lm.models.ViT2D.model import ViTEncoder
+        # Force scratch init during reconstruction — weights come from checkpoint
+        if isinstance(cfg, dict):
+            cfg.setdefault("vit", {})["warm_start"] = False
+        elif hasattr(cfg, "vit"):
+            cfg.vit["warm_start"] = False
         return ViTEncoder(cfg)
     elif backbone == "cnn1d":
         from imu_lm.models.CNN1D.model import CNN1DEncoder

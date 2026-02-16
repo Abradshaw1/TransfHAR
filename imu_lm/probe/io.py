@@ -9,10 +9,13 @@ from typing import Any, Dict, Tuple
 import torch
 
 
-def resolve_probe_dir(run_dir: str, cfg: Any) -> Dict[str, str]:
+def resolve_probe_dir(run_dir: str, cfg: Any, fewshot_k: int | None = None) -> Dict[str, str]:
     probe_cfg = cfg.get("probe", {}) if isinstance(cfg, dict) else getattr(cfg, "probe", {})
     dirname = probe_cfg.get("probe_dirname", probe_cfg.get("output", {}).get("probe_dirname", "probe"))
-    base = os.path.join(run_dir, dirname)
+    if fewshot_k is not None:
+        base = os.path.join(run_dir, "probe_fewshot", f"k{fewshot_k}")
+    else:
+        base = os.path.join(run_dir, dirname)
     paths = {
         "base": base,
         "logs": os.path.join(base, "logs"),

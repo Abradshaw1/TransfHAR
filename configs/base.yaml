@@ -62,21 +62,17 @@ preprocess:
     method: zscore             # zscore | robust | minmax
     eps: 1e-6
 
-# Default: raw 1D IMU [C, T]. Set spectrogram.enabled: true for ViT-MAE (converts to image)
-raw1d_imu:
-  enabled: true  # informational flag; raw 1D is always available
-
 spectrogram:
-  enabled: false
+  enabled: true
   n_fft: 128
   win_length: 64
   hop_length: 2
   center: true
-  return_image: false
+  return_image: true
 
 gaussian_noise:
-  enabled: false
-  sigma: 0.6            
+  enabled: true
+  sigma: 0.1            
 
 gain_jitter:
   enabled: false

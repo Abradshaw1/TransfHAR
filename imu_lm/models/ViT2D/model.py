@@ -82,7 +82,7 @@ class ViTEncoder(nn.Module):
         self.num_channels = num_channels
         self.embed_dim = int(self.mae_model.config.hidden_size)
         self.pooling = enc_cfg.get("pooling", "mean")  # pooling is under encoder
-        self.backbone_name = pretrained_id if warm_start else "vit_mae_scratch"
+        self.backbone_name = "vit2d"
 
     def _prepare(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() != 4:
