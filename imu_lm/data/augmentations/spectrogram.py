@@ -9,8 +9,8 @@ import torch
 
 from imu_lm.utils.helpers import cfg_get
 
-def _spec_to_img(spec: torch.Tensor) -> torch.Tensor:
-    """[C,F,TT] -> [3,F,TT] float32 (acc_x/y/z -> R/G/B)."""
+def _spec_to_img(spec: torch.Tensor, log_scale: bool = False) -> torch.Tensor:
+    """[C,F,TT] -> [3,F,TT] float32 in [0,1] (acc_x/y/z -> R/G/B)."""
     if spec.dim() != 3:
         raise ValueError(f"Expected spec shape [C, F, TT], got {spec.shape}")
 
@@ -24,6 +24,11 @@ def _spec_to_img(spec: torch.Tensor) -> torch.Tensor:
     else:
         base = np.concatenate([spec_np, np.zeros_like(spec_np[:1])], axis=0)
 
+    if log_scale:
+        base = 20.0 * np.log10(base + 1e-10)  # magnitude -> dB
+        base -= base.min()                      # shift to non-negative
+
+    base /= max(float(base.max()), 1e-12)  # global scale -> [0,1]
     return torch.from_numpy(base)  # [3,F,TT]
 
 
@@ -58,7 +63,8 @@ def stft_encode(x_ct: torch.Tensor, cfg: Any) -> Tuple[torch.Tensor, torch.Tenso
     spec = torch.abs(X)  # [C,F,TT]
 
     if return_image:
-        img = _spec_to_img(spec)  # [3,F,TT]
+        log_scale = bool(scfg.get("log_scale", False))
+        img = _spec_to_img(spec, log_scale=log_scale)  # [3,F,TT]
         return spec, img
 
     return spec
