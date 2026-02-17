@@ -51,11 +51,11 @@ preprocess:
     max_missing_frac: 0.2
 
   filter:
-    enabled: true
+    enabled: false
     type: lowpass             
     order: 4
-    low_hz: 0.5
-    high_hz: 24
+    low_hz: 0
+    high_hz: 24.999
 
   normalize:
     enabled: true

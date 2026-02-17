@@ -10,7 +10,7 @@ import torch
 from imu_lm.utils.helpers import cfg_get
 
 def _spec_to_img(spec: torch.Tensor) -> torch.Tensor:
-    """[C,F,TT] -> [3,F,TT] float32 in [0,1] (acc_x/y/z -> R/G/B)."""
+    """[C,F,TT] -> [3,F,TT] float32 (acc_x/y/z -> R/G/B)."""
     if spec.dim() != 3:
         raise ValueError(f"Expected spec shape [C, F, TT], got {spec.shape}")
 
@@ -24,7 +24,6 @@ def _spec_to_img(spec: torch.Tensor) -> torch.Tensor:
     else:
         base = np.concatenate([spec_np, np.zeros_like(spec_np[:1])], axis=0)
 
-    base /= max(float(base.max()), 1e-12)  # global scale -> [0,1]
     return torch.from_numpy(base)  # [3,F,TT]
 
 
