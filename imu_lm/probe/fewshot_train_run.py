@@ -20,25 +20,38 @@ import os
 import random
 from typing import Any, Dict, List
 
+import numpy as np
 from torch.utils.data import DataLoader, Subset
 
+from imu_lm.data.windowing import resolve_window_label
 from imu_lm.probe.io import resolve_probe_dir
 from imu_lm.probe.train_run import setup_probe, run_probe
 
 
 def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_class: int, seed: int) -> DataLoader:
-    """Subsample train loader to k windows per class."""
+    """Subsample train loader to k windows per class.
+
+    Reads labels directly from dataset session cache + resolve_window_label,
+    bypassing __getitem__ (no preprocessing / STFT). Scans in session order
+    so the single-entry session cache gets maximum hits.
+    """
     raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
     dataset = loader.dataset
     rng = random.Random(seed)
     per_class: Dict[int, List[int]] = {idx: [] for idx in raw_to_idx.values()}
 
-    for idx in range(len(dataset)):
-        item = dataset[idx]
-        if item is None:
+    # Scan in session order for cache locality
+    scan_order = np.argsort(dataset._sess_idx, kind="stable")
+    for idx in scan_order:
+        idx = int(idx)
+        key = dataset._keys[dataset._sess_idx[idx]]
+        start = int(dataset._starts[idx])
+        _, y, _ = dataset._load_session(key)
+        yw = y[start : start + dataset._T]
+        label = resolve_window_label(yw, dataset.cfg)
+        if label is None:
             continue
-        _, y = item
-        raw = int(y)
+        raw = int(label)
         if raw not in raw_to_idx:
             continue
         mapped = raw_to_idx[raw]
@@ -50,9 +63,11 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
         keep_indices.extend(idxs[:shots_per_class])
 
     subset = Subset(dataset, keep_indices)
+    # loader.batch_size is None when using SessionGroupedBatchSampler
+    bs = loader.batch_size or 128
     return DataLoader(
         subset,
-        batch_size=loader.batch_size,
+        batch_size=bs,
         shuffle=True,
         num_workers=loader.num_workers,
         pin_memory=loader.pin_memory,
@@ -101,7 +116,8 @@ def main(cfg: Any, run_dir: str):
                     summary.get("test", {}).get("macro_f1", 0.0))
 
     # Write combined sweep summary
-    sweep_dir = os.path.join(run_dir, "probe_fewshot")
+    fewshot_dirname = cfg.get("probe", {}).get("fewshot_probe_dirname", "probe_fewshot")
+    sweep_dir = os.path.join(run_dir, fewshot_dirname)
     os.makedirs(sweep_dir, exist_ok=True)
     sweep_path = os.path.join(sweep_dir, "sweep_summary.json")
     with open(sweep_path, "w") as f:

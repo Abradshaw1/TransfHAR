@@ -22,8 +22,8 @@ data:
   drop_na: false
   num_workers: 8
   pin_memory: true
-  batch_size: 512
-  eval_batch_size: 512
+  batch_size: 128
+  eval_batch_size: 128
 
 splits:
   seed: 0

@@ -8,16 +8,17 @@ probe:
   encoder_meta_relpath: "artifacts/encoder_meta.json"
   drop_unknown: false
   min_count_per_class: 0
-  fewshot_enabled: false
-  fewshot_shots_per_class: [1, 5, 10, 25, 50] # single int or list; list triggers sweep over all k values
+  fewshot_enabled: true
+  fewshot_shots_per_class: [1, 5, 10] # single int or list; list triggers sweep over all k values
   fewshot_seed: 0
-  num_epochs: 1000000 # set high to converge by metric
-  batch_size: 256
+  num_epochs: 3 # set high to converge by metric
+  batch_size: 128
   lr: 0.001
   weight_decay: 0.0
   grad_clip_norm: 1.0
-  early_stop_patience: 20
+  early_stop_patience: 2
   amp: true
   selection_metric: macro_f1
   log_every_steps: 5
   probe_dirname: "probe"
+  fewshot_probe_dirname: "probe_fewshot"
