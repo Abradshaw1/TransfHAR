@@ -20,34 +20,75 @@ import os
 import random
 from typing import Any, Dict, List
 
-import numpy as np
+import pyarrow.dataset as pa_ds
 from torch.utils.data import DataLoader, Subset
 
+from imu_lm.data.splits import SessionKey
 from imu_lm.data.windowing import resolve_window_label
 from imu_lm.probe.io import resolve_probe_dir
 from imu_lm.probe.train_run import setup_probe, run_probe
 
 
+def _bulk_read_session_labels(dataset) -> Dict[SessionKey, "np.ndarray"]:
+    """Single-pass parquet read of label column for all sessions in the dataset.
+
+    Returns {session_key: label_array} with labels in row order.
+    One parquet query per unique dataset name (typically just 1 for probe).
+    """
+    import numpy as np
+
+    pa = pa_ds.dataset(dataset.parquet_path, format="parquet")
+    label_col = dataset._label_col
+    subj_col = dataset._subject_col
+    sess_col = dataset._session_col
+    ds_col = dataset._dataset_col
+    time_col = dataset._time_col
+
+    # Unique dataset names (usually 1, e.g. "samosa")
+    needed_keys = set(dataset._keys)
+    ds_names = set(k.dataset for k in needed_keys)
+
+    cols = [label_col, subj_col, sess_col]
+    if time_col:
+        cols.append(time_col)
+
+    session_labels: Dict[SessionKey, np.ndarray] = {}
+    for ds_name in ds_names:
+        table = pa.to_table(columns=cols, filter=pa_ds.field(ds_col) == ds_name)
+        df = table.to_pandas()
+        if time_col and time_col in df.columns:
+            df = df.sort_values([subj_col, sess_col, time_col])
+        for (subj, sess), grp in df.groupby([subj_col, sess_col]):
+            key = SessionKey(ds_name, str(subj), str(sess))
+            if key in needed_keys:
+                session_labels[key] = grp[label_col].to_numpy()
+
+    return session_labels
+
+
 def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_class: int, seed: int) -> DataLoader:
     """Subsample train loader to k windows per class.
 
-    Reads labels directly from dataset session cache + resolve_window_label,
-    bypassing __getitem__ (no preprocessing / STFT). Scans in session order
-    so the single-entry session cache gets maximum hits.
+    Bulk-reads labels from parquet (1 query, label column only),
+    then resolves per-window labels in memory — no preprocessing/STFT.
     """
+    import numpy as np
+
     raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
     dataset = loader.dataset
     rng = random.Random(seed)
     per_class: Dict[int, List[int]] = {idx: [] for idx in raw_to_idx.values()}
 
-    # Scan in session order for cache locality
-    scan_order = np.argsort(dataset._sess_idx, kind="stable")
-    for idx in scan_order:
-        idx = int(idx)
+    # One bulk parquet read — label column only
+    session_labels = _bulk_read_session_labels(dataset)
+
+    for idx in range(len(dataset)):
         key = dataset._keys[dataset._sess_idx[idx]]
+        y_arr = session_labels.get(key)
+        if y_arr is None:
+            continue
         start = int(dataset._starts[idx])
-        _, y, _ = dataset._load_session(key)
-        yw = y[start : start + dataset._T]
+        yw = y_arr[start : start + dataset._T]
         label = resolve_window_label(yw, dataset.cfg)
         if label is None:
             continue
