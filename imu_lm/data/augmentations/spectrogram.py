@@ -25,8 +25,7 @@ def _spec_to_img(spec: torch.Tensor, log_scale: bool = False) -> torch.Tensor:
         base = np.concatenate([spec_np, np.zeros_like(spec_np[:1])], axis=0)
 
     if log_scale:
-        base = 20.0 * np.log10(base + 1e-10)  # magnitude -> dB
-        base -= base.min()                      # shift to non-negative
+        base = np.log1p(base)                   # dynamic range compression
 
     base /= max(float(base.max()), 1e-12)  # global scale -> [0,1]
     return torch.from_numpy(base)  # [3,F,TT]

@@ -6,7 +6,7 @@ objective:
   type: mae                # mae | supervised
   # MAE-specific (masked_2d for HuggingFace ViTMAE)
   mask_ratio: 0.75
-  norm_pix_loss: false
+  norm_pix_loss: true
 
 vit:
   warm_start: true
@@ -40,10 +40,10 @@ decoder: # arch params (used only when warm_start=false)
 trainer:
   seed: 42
   amp: true
-  max_steps: 100
+  max_steps: 1000000
   grad_clip_norm: 1.0
   grad_accum_steps: 8
-  val_every_steps: 10
+  val_every_steps: 1000
 
   optim:
     name: adamw
@@ -59,6 +59,6 @@ trainer:
   early_stopping:
     enabled: true
     monitor: val_loss
-    patience: 5
+    patience: 10
 
 

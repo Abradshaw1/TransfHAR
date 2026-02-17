@@ -1,6 +1,6 @@
 paths:
-  runs_root: "/home/aidan/TransfHAR/runs"
-  dataset_path: "/home/aidan/TransfHAR/imu_lm/data/data_drive/IMULM_master_dataset.parquet"
+  runs_root: "/shared/imu_lm/TransfHAR/runs"
+  dataset_path: "/shared/imu_lm/IMULM_master_dataset.parquet"
 
 logging:
   log_every_steps: 5
@@ -18,12 +18,12 @@ data:
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
   sensor_columns: [acc_x, acc_y, acc_z]
-  train_on_datasets: ["wear"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
+  train_on_datasets: ["wear", "capture24", "opportunity++", "pamap2", "recofit", "ut_watch", "wisdm"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
   num_workers: 8
   pin_memory: true
-  batch_size: 128
-  eval_batch_size: 128
+  batch_size: 512
+  eval_batch_size: 512
 
 splits:
   seed: 0
