@@ -69,7 +69,7 @@ spectrogram:
   hop_length: 2
   center: true
   return_image: true
-  log_scale: false             # if true: magnitude -> dB -> shift non-negative -> [0,1]
+  log_scale: false             # if true: log1p compression -> scale to [0,1]
 
 gaussian_noise:
   enabled: true

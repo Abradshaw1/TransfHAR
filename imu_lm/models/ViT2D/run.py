@@ -14,7 +14,7 @@ from imu_lm.models.ViT2D.model import ViTEncoder
 from imu_lm.objectives import masked_2d as masked_2d_obj
 from imu_lm.objectives import supervised as supervised_obj
 from imu_lm.probe.head import LinearHead
-from imu_lm.runtime_consistency.artifacts import save_encoder, save_supervised_model
+from imu_lm.runtime_consistency.artifacts import save_label_map, save_meta
 from imu_lm.runtime_consistency.trainer import Trainer
 from imu_lm.utils.helpers import cfg_get
 from imu_lm.utils.training import (
@@ -34,10 +34,33 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     # Create encoder (always needed)
     encoder = ViTEncoder(cfg)
     
+    # Save architecture metadata at run start (static — doesn't change during training).
+    # Weights are saved in checkpoints/best.pt and latest.pt by the trainer.
+    meta = {
+        "embedding_dim": encoder.embed_dim,
+        "encoding": "spectrogram_image",
+        "objective": objective_type,
+        "backbone": encoder.backbone_name,
+        "input_spec": {
+            "channels": encoder.num_channels,
+            "height": encoder.resize_hw[0],
+            "width": encoder.resize_hw[1],
+            "patch_size": encoder.patch_size,
+        },
+        "architecture": {
+            "hidden_size": encoder.embed_dim,
+            "num_layers": encoder.mae_model.config.num_hidden_layers,
+            "num_heads": encoder.mae_model.config.num_attention_heads,
+        },
+        "normalization": cfg_get(cfg, ["preprocess", "normalize", "method"], None),
+    }
+    save_meta(meta, run_dir)
+    
     if objective_type == "supervised":
         # Supervised: encoder + LinearHead, auto-discover classes from data
         loaders = make_loaders(cfg)
         label_map = build_label_map(loaders["train_loader"], cfg)
+        save_label_map(label_map, run_dir)
         raw_to_idx = label_map["raw_to_idx"]
         num_classes = label_map["num_classes"]
         head = LinearHead(encoder.embed_dim, num_classes)
@@ -66,26 +89,6 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
 
     trainer = Trainer(cfg, run_dir)
     trainer.fit(encoder, objective_fn, train_loader, val_loader, optimizer, scheduler, start_step=start_step, extra_modules=extra_modules)
-
-    meta = {
-        "embedding_dim": encoder.embed_dim,
-        "encoding": "spectrogram_image",
-        "objective": objective_type,
-        "backbone": encoder.backbone_name,
-        "input_spec": {
-            "channels": encoder.num_channels,
-            "height": encoder.resize_hw[0],
-            "width": encoder.resize_hw[1],
-            "patch_size": encoder.patch_size,
-        },
-        "normalization": cfg_get(cfg, ["preprocess", "normalize", "method"], None),
-    }
-    
-    if objective_type == "supervised":
-        meta["num_classes"] = num_classes
-        save_supervised_model(encoder, head, meta, run_dir, label_map=label_map)
-    else:
-        save_encoder(encoder, meta, run_dir)
 
 
 if __name__ == "__main__":

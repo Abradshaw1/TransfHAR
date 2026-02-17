@@ -93,28 +93,11 @@ def load_encoder(run_dir: str, ckpt_name: str = "best", map_location=None):
     raise FileNotFoundError(f"No encoder meta or encoder.pt found in {run_dir}/artifacts/")
 
 
-def save_supervised_model(
-    encoder: torch.nn.Module,
-    head: torch.nn.Module,
-    meta: Dict[str, Any],
-    run_dir: str,
-    label_map: Dict[str, Any] | None = None,
-):
-    """Save encoder + classification head + label_map for fully supervised training."""
+def save_label_map(label_map: Dict[str, Any], run_dir: str):
+    """Save label_map.json to artifacts/. Call right after build_label_map()."""
     paths = artifact_paths(run_dir)
-    torch.save(encoder, paths["encoder"])
-    head_path = os.path.join(paths["dir"], "head.pt")
-    torch.save(head, head_path)
-    model_path = os.path.join(paths["dir"], "model.pt")
-    torch.save({"encoder": encoder, "head": head}, model_path)
-    if label_map is not None:
-        label_map_path = os.path.join(paths["dir"], "label_map.json")
-        with open(label_map_path, "w") as f:
-            json.dump({k: v for k, v in label_map.items() if k != "unknown_id" or v is not None}, f, indent=2)
-        meta["label_map_path"] = "label_map.json"
-    with open(paths["meta"], "w") as f:
-        json.dump(meta, f, indent=2)
-    print(f"[artifact] saved encoder to {paths['encoder']}")
-    print(f"[artifact] saved head to {head_path}")
-    print(f"[artifact] saved combined model to {model_path}")
-    print(f"[artifact] saved meta to {paths['meta']}")
+    label_map_path = os.path.join(paths["dir"], "label_map.json")
+    serialisable = {k: v for k, v in label_map.items() if k != "unknown_id" or v is not None}
+    with open(label_map_path, "w") as f:
+        json.dump(serialisable, f, indent=2)
+    print(f"[artifact] saved label_map to {label_map_path}")

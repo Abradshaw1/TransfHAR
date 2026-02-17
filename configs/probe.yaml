@@ -11,12 +11,12 @@ probe:
   fewshot_enabled: true
   fewshot_shots_per_class: [1, 5, 10] # single int or list; list triggers sweep over all k values
   fewshot_seed: 0
-  num_epochs: 3 # set high to converge by metric
+  num_epochs: 100000 # set high to converge by metric
   batch_size: 128
   lr: 0.001
   weight_decay: 0.0
   grad_clip_norm: 1.0
-  early_stop_patience: 2
+  early_stop_patience: 5
   amp: true
   selection_metric: macro_f1
   log_every_steps: 5
