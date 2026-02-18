@@ -13,7 +13,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.amp import GradScaler, autocast
-from torch.utils.data import DataLoader
 
 from imu_lm.data.loaders import make_loaders
 from imu_lm.probe.eval import eval_head

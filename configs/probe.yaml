@@ -1,5 +1,5 @@
 splits:
-  probe_dataset: wisdm
+  probe_dataset: samosa
   probe_ratios: [0.7, 0.1, 0.2]  # train/val/test inside probe dataset
   probe_stratify_by_label: true
 
@@ -20,5 +20,5 @@ probe:
   amp: true
   selection_metric: bal_acc
   log_every_steps: 5
-  probe_dirname: "probe_wisdm"
+  probe_dirname: "probe_samosa"
   fewshot_probe_dirname: "probe_fewshot"

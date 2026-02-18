@@ -131,7 +131,7 @@ def normalize_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] 
 
 
 def preprocess_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats] = None) -> Optional[np.ndarray]:
-    """Apply impute -> filter -> normalize, returning [T, C] float32 or None if dropped."""
+    """Apply impute -> filter -> normalize, returning [C, T] float32 or None if dropped."""
 
     if stats:
         stats.windows_seen += 1
@@ -145,4 +145,4 @@ def preprocess_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats]
     Xw = filter_window(Xw, cfg, stats)
     Xw = normalize_window(Xw, cfg, stats)
 
-    return Xw
+    return Xw.T  # [T, C] -> [C, T]

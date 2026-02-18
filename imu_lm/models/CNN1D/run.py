@@ -68,8 +68,6 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
         all_params = list(encoder.parameters()) + list(head.parameters())
     else:
         # MAE: encoder + decoder, self-supervised (no labels needed)
-        data_cfg = cfg_get(cfg, ["data"], {}) or {}
-        sensor_cols = data_cfg.get("sensor_columns", ["acc_x", "acc_y", "acc_z"])
         decoder = CNN1DDecoder(
             embed_dim=encoder.embed_dim,
             out_channels=len(sensor_cols),

@@ -181,16 +181,15 @@ class WindowDataset(Dataset):
         if Xproc is None:
             return None
 
-        Xproc = apply_augment(Xproc, self.cfg)              # [T, C] -> [T, C]
-        x_ct = torch.from_numpy(Xproc).float().T             # [T, C] -> [C, T]  (single transpose)
+        Xproc = apply_augment(Xproc.T, self.cfg).T
 
         if self._spec_enabled:
-            out = stft_encode(x_ct, self.cfg)
+            out = stft_encode(torch.from_numpy(Xproc).float(), self.cfg)
             x_tensor = out[1] if isinstance(out, tuple) else out
             if x_tensor.dim() != 3:
                 return None
         else:
-            x_tensor = x_ct
+            x_tensor = torch.from_numpy(Xproc).float()
 
         y_tensor = torch.tensor(label, dtype=torch.long)
         return x_tensor, y_tensor
@@ -264,9 +263,9 @@ def collate_skip_none(batch):
     return torch.stack(xs, 0), torch.stack(ys, 0)
 
 
-def _make_loader(dataset: WindowDataset, batch_size: int, shuffle: bool, num_workers: int, pin_memory: bool, session_grouped: bool = True) -> DataLoader:
+def _make_loader(dataset: WindowDataset, batch_size: int, shuffle: bool, num_workers: int, pin_memory: bool) -> DataLoader:
     persistent = num_workers > 0
-    if shuffle and session_grouped:
+    if shuffle:
         batch_sampler = SessionGroupedBatchSampler(
             dataset._sess_idx, batch_size, shuffle=True, drop_last=False,
         )
@@ -321,15 +320,15 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
     splits = make_splits(session_index, cfg)
 
     loaders: Dict[str, DataLoader] = {}
-    def add(name: str, keys: List[SessionKey], bs: int, shuf: bool, session_grouped: bool = True):
+    def add(name: str, keys: List[SessionKey], bs: int, shuf: bool):
         if not keys:
             return
         wds = WindowDataset(parquet_path, session_index, keys, cfg, split_name=name)
-        loaders[f"{name}_loader"] = _make_loader(wds, bs, shuf, num_workers, pin_memory, session_grouped=session_grouped)
+        loaders[f"{name}_loader"] = _make_loader(wds, bs, shuf, num_workers, pin_memory)
         logger.info("[%s] %s_loader: sessions=%d windows=%d batch_size=%d", mode, name, len(keys), len(wds), bs)
 
     if is_probe:
-        add("probe_train", splits["probe_train_keys"], batch_size, True, session_grouped=False)
+        add("probe_train", splits["probe_train_keys"], batch_size, True)
         add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
         add("probe_test", splits["probe_test_keys"], eval_batch_size, False)
     else:

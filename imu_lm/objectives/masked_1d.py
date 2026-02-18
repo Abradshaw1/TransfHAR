@@ -58,15 +58,11 @@ def generate_patch_mask(
     
     mask = torch.zeros(B, N, dtype=torch.bool, device=device)
     
-    # For composite, pick one strategy for the entire batch so all samples
-    # share the same num_mask (required for batched dropout removal in encoder)
-    if strategy == "composite":
-        batch_strat = pyrandom.choice(["random", "temporal", "signal"])
-    else:
-        batch_strat = strategy
-    
     for b in range(B):
-        strat = batch_strat
+        if strategy == "composite":
+            strat = pyrandom.choice(["random", "temporal", "signal"])
+        else:
+            strat = strategy
         
         if strat == "random":
             # Uniformly random patch selection
@@ -154,24 +150,18 @@ def forward_loss(
     B, C, T = x.shape
     
     obj_cfg = cfg_get(cfg, ["objective"], {}) or {}
+    mask_ratio = float(obj_cfg.get("mask_ratio", 0.65))
     strategy = str(obj_cfg.get("mask_strategy", "composite"))
-    
-    # Per-strategy mask ratios (LSM-2: random=0.8, temporal=0.5, signal=0.5)
-    mask_ratios = {
-        "random": float(obj_cfg.get("random_mask_ratio", obj_cfg.get("mask_ratio", 0.8))),
-        "temporal": float(obj_cfg.get("temporal_mask_ratio", obj_cfg.get("mask_ratio", 0.5))),
-        "signal": float(obj_cfg.get("signal_mask_ratio", obj_cfg.get("mask_ratio", 0.5))),
-    }
     
     patch_size = encoder.patch_size
     num_patches_per_channel = T // patch_size
     
-    # For composite, pick strategy first so we can select the right ratio
+    # For composite, pick one strategy for the entire batch so all samples
+    # share the same num_mask (required for batched dropout removal in encoder)
     if strategy == "composite":
         batch_strategy = pyrandom.choice(["random", "temporal", "signal"])
     else:
         batch_strategy = strategy
-    mask_ratio = mask_ratios.get(batch_strategy, 0.75)
     
     # Generate patch-level mask [B, N], True = masked (removed from encoder)
     patch_mask = generate_patch_mask(B, num_patches_per_channel, C, mask_ratio, batch_strategy, x.device)
@@ -197,4 +187,5 @@ def forward_loss(
     return loss, {
         "loss": float(loss.detach().item()),
         "mask_ratio": actual_ratio,
+        "mask_strategy": batch_strategy,
     }
