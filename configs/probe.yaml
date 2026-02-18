@@ -11,7 +11,7 @@ probe:
   fewshot_enabled: false
   fewshot_shots_per_class: [1, 5, 10] # single int or list; list triggers sweep over all k values
   fewshot_seed: 0
-  num_epochs: 1 # set high to converge by metric
+  num_epochs: 100 # early_stop_patience will halt when converged
   batch_size: 128
   lr: 0.001
   weight_decay: 0.0

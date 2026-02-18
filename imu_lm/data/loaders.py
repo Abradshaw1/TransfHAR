@@ -264,9 +264,9 @@ def collate_skip_none(batch):
     return torch.stack(xs, 0), torch.stack(ys, 0)
 
 
-def _make_loader(dataset: WindowDataset, batch_size: int, shuffle: bool, num_workers: int, pin_memory: bool) -> DataLoader:
+def _make_loader(dataset: WindowDataset, batch_size: int, shuffle: bool, num_workers: int, pin_memory: bool, session_grouped: bool = True) -> DataLoader:
     persistent = num_workers > 0
-    if shuffle:
+    if shuffle and session_grouped:
         batch_sampler = SessionGroupedBatchSampler(
             dataset._sess_idx, batch_size, shuffle=True, drop_last=False,
         )
@@ -321,15 +321,15 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
     splits = make_splits(session_index, cfg)
 
     loaders: Dict[str, DataLoader] = {}
-    def add(name: str, keys: List[SessionKey], bs: int, shuf: bool):
+    def add(name: str, keys: List[SessionKey], bs: int, shuf: bool, session_grouped: bool = True):
         if not keys:
             return
         wds = WindowDataset(parquet_path, session_index, keys, cfg, split_name=name)
-        loaders[f"{name}_loader"] = _make_loader(wds, bs, shuf, num_workers, pin_memory)
+        loaders[f"{name}_loader"] = _make_loader(wds, bs, shuf, num_workers, pin_memory, session_grouped=session_grouped)
         logger.info("[%s] %s_loader: sessions=%d windows=%d batch_size=%d", mode, name, len(keys), len(wds), bs)
 
     if is_probe:
-        add("probe_train", splits["probe_train_keys"], batch_size, True)
+        add("probe_train", splits["probe_train_keys"], batch_size, True, session_grouped=False)
         add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
         add("probe_test", splits["probe_test_keys"], eval_batch_size, False)
     else:

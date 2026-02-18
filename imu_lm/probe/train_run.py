@@ -201,12 +201,30 @@ def setup_probe(cfg: Any, run_dir: str) -> Dict[str, Any]:
 
     drop_unknown = bool(probe_cfg.get("drop_unknown", True))
     min_count = int(probe_cfg.get("min_count_per_class", 0))
-    label_map = build_label_map(
-        train_loader, cfg,
-        unknown_id=unknown_id,
-        drop_unknown=drop_unknown,
-        min_count=min_count,
-    )
+
+    # Fast label discovery via pyarrow (avoids iterating full DataLoader)
+    import pyarrow.dataset as pa_ds
+    import pyarrow.compute as pc
+    parquet_path = cfg_get(cfg, ["paths", "dataset_path"])
+    label_col = cfg_get(cfg, ["data", "label_column"], "dataset_activity_id")
+    dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+    pa_dset = pa_ds.dataset(parquet_path, format="parquet")
+    filt = pa_ds.field(dataset_col) == probe_dataset if probe_dataset else None
+    lbl_arr = pa_dset.to_table(columns=[label_col], filter=filt)[label_col]
+    vc = lbl_arr.value_counts().to_pylist()
+    counts = {int(entry["values"]): int(entry["counts"]) for entry in vc}
+    if drop_unknown and unknown_id is not None:
+        counts.pop(int(unknown_id), None)
+    kept = sorted([k for k, c in counts.items() if c >= min_count])
+    raw_to_idx = {r: i for i, r in enumerate(kept)}
+    idx_to_raw = {i: r for i, r in enumerate(kept)}
+    logger.info("build_label_map (fast): classes=%d", len(raw_to_idx))
+    label_map = {
+        "raw_to_idx": raw_to_idx,
+        "idx_to_raw": idx_to_raw,
+        "num_classes": len(raw_to_idx),
+        "unknown_id": unknown_id,
+    }
 
     # Build activity name mapping (dataset_activity_id → string name)
     raw_label_names = _build_label_names(cfg, logger)
