@@ -1,6 +1,6 @@
 paths:
-  runs_root: "/shared/imu_lm/TransfHAR/runs"
-  dataset_path: "/shared/imu_lm/IMULM_master_dataset.parquet"
+  runs_root: "/home/aidan/TransfHAR/runs"
+  dataset_path: "/home/aidan/TransfHAR/imu_lm/data/data_drive/IMULM_master_dataset.parquet"
 
 logging:
   log_every_steps: 5
@@ -17,8 +17,8 @@ data:
   time_column: timestamp_ns
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
-  sensor_columns: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
-  train_on_datasets: ["pamap2", "recofit", "wisdm", "ut_watch", "shoaib"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
+  sensor_columns: [acc_x, acc_y, acc_z]
+  train_on_datasets: ["wear"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
   num_workers: 8
   pin_memory: true
@@ -29,7 +29,7 @@ splits:
   seed: 0
   group_key: subject_id        
   shuffle: true
-  probe_dataset: samosa        # excluded from pretraining splits; used as probe eval target
+  probe_dataset: samosa          # excluded from pretraining splits; used as probe eval target
   val_ratio: 0.05               # for non-probe training split only
   test_ratio: 0               # held-out test set (used by supervised eval) set to 0 when running MAE
 
@@ -54,13 +54,17 @@ preprocess:
     enabled: true
     type: lowpass             
     order: 4
-    low_hz: 0.25
-    high_hz: 24.999
+    low_hz: 0.5
+    high_hz: 24
 
   normalize:
     enabled: true
     method: zscore             # zscore | robust | minmax
     eps: 1e-6
+
+# Default: raw 1D IMU [C, T]. Set spectrogram.enabled: true for ViT-MAE (converts to image)
+raw1d_imu:
+  enabled: true  # informational flag; raw 1D is always available
 
 spectrogram:
   enabled: false
@@ -69,7 +73,6 @@ spectrogram:
   hop_length: 2
   center: true
   return_image: false
-  log_scale: false             # if true: log1p compression -> scale to [0,1]
 
 gaussian_noise:
   enabled: false

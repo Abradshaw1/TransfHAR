@@ -46,13 +46,8 @@ def _build_encoder_from_cfg(backbone: str, cfg: Any):
     if backbone == "vit1d":
         from imu_lm.models.ViT1D.model import ViT1DEncoder
         return ViT1DEncoder(cfg)
-    elif backbone in ("vit", "vit2d", "vit_mae_scratch") or (isinstance(backbone, str) and "vit-mae" in backbone):
+    elif backbone in ("vit", "vit2d"):
         from imu_lm.models.ViT2D.model import ViTEncoder
-        # Force scratch init during reconstruction — weights come from checkpoint
-        if isinstance(cfg, dict):
-            cfg.setdefault("vit", {})["warm_start"] = False
-        elif hasattr(cfg, "vit"):
-            cfg.vit["warm_start"] = False
         return ViTEncoder(cfg)
     elif backbone == "cnn1d":
         from imu_lm.models.CNN1D.model import CNN1DEncoder
@@ -93,11 +88,28 @@ def load_encoder(run_dir: str, ckpt_name: str = "best", map_location=None):
     raise FileNotFoundError(f"No encoder meta or encoder.pt found in {run_dir}/artifacts/")
 
 
-def save_label_map(label_map: Dict[str, Any], run_dir: str):
-    """Save label_map.json to artifacts/. Call right after build_label_map()."""
+def save_supervised_model(
+    encoder: torch.nn.Module,
+    head: torch.nn.Module,
+    meta: Dict[str, Any],
+    run_dir: str,
+    label_map: Dict[str, Any] | None = None,
+):
+    """Save encoder + classification head + label_map for fully supervised training."""
     paths = artifact_paths(run_dir)
-    label_map_path = os.path.join(paths["dir"], "label_map.json")
-    serialisable = {k: v for k, v in label_map.items() if k != "unknown_id" or v is not None}
-    with open(label_map_path, "w") as f:
-        json.dump(serialisable, f, indent=2)
-    print(f"[artifact] saved label_map to {label_map_path}")
+    torch.save(encoder, paths["encoder"])
+    head_path = os.path.join(paths["dir"], "head.pt")
+    torch.save(head, head_path)
+    model_path = os.path.join(paths["dir"], "model.pt")
+    torch.save({"encoder": encoder, "head": head}, model_path)
+    if label_map is not None:
+        label_map_path = os.path.join(paths["dir"], "label_map.json")
+        with open(label_map_path, "w") as f:
+            json.dump({k: v for k, v in label_map.items() if k != "unknown_id" or v is not None}, f, indent=2)
+        meta["label_map_path"] = "label_map.json"
+    with open(paths["meta"], "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"[artifact] saved encoder to {paths['encoder']}")
+    print(f"[artifact] saved head to {head_path}")
+    print(f"[artifact] saved combined model to {model_path}")
+    print(f"[artifact] saved meta to {paths['meta']}")

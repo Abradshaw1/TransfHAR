@@ -145,4 +145,4 @@ def preprocess_window(Xw: np.ndarray, cfg: Any, stats: Optional[PreprocessStats]
     Xw = filter_window(Xw, cfg, stats)
     Xw = normalize_window(Xw, cfg, stats)
 
-    return Xw.T  # [T, C] -> [C, T]
+    return np.transpose(Xw, (1, 0))

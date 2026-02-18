@@ -5,6 +5,7 @@ import logging
 import sys
 from typing import Any, Optional, List
 
+import yaml
 import pandas as pd
 
 try:
@@ -14,7 +15,7 @@ except Exception as exc:
 
 from imu_lm.data.splits import SessionKey, build_session_index
 from imu_lm.data.loaders import WindowDataset
-from imu_lm.utils.helpers import cfg_get, load_yaml
+from imu_lm.utils.helpers import cfg_get
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -27,7 +28,8 @@ EXPECTED_DATASETS: Optional[List[str]] = [
 
 
 def load_cfg(path: str) -> Any:
-    return load_yaml(path)
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def _discover_datasets(parquet_path: str, dataset_col: str, limit_batches: int = 5) -> List[str]:

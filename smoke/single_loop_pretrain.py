@@ -11,6 +11,7 @@ import time
 from typing import Any, Dict, Tuple
 
 import torch
+import yaml
 from torch.amp import GradScaler, autocast
 
 from imu_lm.data.loaders import make_loaders
@@ -19,8 +20,23 @@ from imu_lm.data.windowing import compute_T_and_hop
 from imu_lm.models.ViT1D.model import ViT1DEncoder, ViT1DDecoder
 from imu_lm.objectives import masked_1d as masked_1d_obj
 from imu_lm.runtime_consistency.artifacts import save_encoder
-from imu_lm.utils.helpers import cfg_get, deep_update, load_yaml
+from imu_lm.utils.helpers import cfg_get
 from imu_lm.utils.training import build_optimizer_from_params, build_scheduler
+
+
+def _deep_update(base: Dict[str, Any], upd: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(base)
+    for k, v in upd.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_update(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def _load_yaml(path: str) -> Dict[str, Any]:
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def _resolve_run_dir(cfg: Dict[str, Any], run_name: str | None) -> str:
@@ -52,7 +68,7 @@ def _log_resolved(cfg: Dict[str, Any], run_dir: str):
     print("# essentials", json.dumps(essentials))
 
 
-def _assert_no_probe_leakage(splits: Dict, probe_dataset: str | None):
+def _assert_no_probe_leakage(splits: Dict[str, Iterable], probe_dataset: str | None):
     if probe_dataset is None:
         return
     for name in ["train_keys", "val_keys"]:
@@ -130,9 +146,9 @@ def main():
     ap.add_argument("--steps", type=int, default=1, help="Number of train steps to run (0 to skip)")
     args = ap.parse_args()
 
-    base_cfg = load_yaml(args.config)
-    model_cfg = load_yaml(args.model_config)
-    cfg = deep_update(base_cfg, model_cfg)
+    base_cfg = _load_yaml(args.config)
+    model_cfg = _load_yaml(args.model_config)
+    cfg = _deep_update(base_cfg, model_cfg)
 
     run_dir = _resolve_run_dir(cfg, args.run_name)
     _log_resolved(cfg, run_dir)

@@ -2,11 +2,12 @@
 spectrogram:
   enabled: true
 
+# Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
   type: mae                # mae | supervised
   # MAE-specific (masked_2d for HuggingFace ViTMAE)
   mask_ratio: 0.75
-  norm_pix_loss: true
+  norm_pix_loss: false
 
 vit:
   warm_start: true
@@ -40,10 +41,10 @@ decoder: # arch params (used only when warm_start=false)
 trainer:
   seed: 42
   amp: true
-  max_steps: 1000000
+  max_steps: 100000
   grad_clip_norm: 1.0
-  grad_accum_steps: 8
-  val_every_steps: 1000
+  grad_accum_steps: 1
+  val_every_steps: 5000
 
   optim:
     name: adamw
@@ -59,6 +60,6 @@ trainer:
   early_stopping:
     enabled: true
     monitor: val_loss
-    patience: 10
+    patience: 5
 
 

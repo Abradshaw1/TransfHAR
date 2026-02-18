@@ -209,7 +209,7 @@ class Trainer:
     def _wandb_log(self, split: str, logs: Dict[str, float], step: int, lr: float = None):
         if wandb is None or wandb.run is None:
             return
-        payload = {f"{split}/{k}": v for k, v in logs.items() if isinstance(v, (int, float, str))}
+        payload = {f"{split}/{k}": v for k, v in logs.items() if isinstance(v, (int, float))}
         if lr is not None:
             payload["lr"] = lr
         wandb.log(payload, step=step)

@@ -280,7 +280,7 @@ def _make_loader(dataset: WindowDataset, batch_size: int, shuffle: bool, num_wor
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=False,
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=False,

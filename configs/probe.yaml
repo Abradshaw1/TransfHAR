@@ -9,16 +9,15 @@ probe:
   drop_unknown: false
   min_count_per_class: 0
   fewshot_enabled: false
-  fewshot_shots_per_class: [1, 5, 10] # single int or list; list triggers sweep over all k values
+  fewshot_shots_per_class: 5 # 1 shot = 1 window of data
   fewshot_seed: 0
-  num_epochs: 100 # early_stop_patience will halt when converged
-  batch_size: 128
-  lr: 0.001
+  num_epochs: 1000000 # set high to converge by metric
+  batch_size: 256
+  lr: 0.0001
   weight_decay: 0.0
   grad_clip_norm: 1.0
-  early_stop_patience: 5
+  early_stop_patience: 20
   amp: true
-  selection_metric: bal_acc
+  selection_metric: macro_f1
   log_every_steps: 5
-  probe_dirname: "probe_samosa"
-  fewshot_probe_dirname: "probe_fewshot"
+  probe_dirname: "probe"

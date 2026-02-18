@@ -59,6 +59,7 @@ def generate_patch_mask(
     mask = torch.zeros(B, N, dtype=torch.bool, device=device)
     
     for b in range(B):
+        # Pick strategy for this sample
         if strategy == "composite":
             strat = pyrandom.choice(["random", "temporal", "signal"])
         else:
@@ -150,21 +151,14 @@ def forward_loss(
     B, C, T = x.shape
     
     obj_cfg = cfg_get(cfg, ["objective"], {}) or {}
-    mask_ratio = float(obj_cfg.get("mask_ratio", 0.65))
+    mask_ratio = float(obj_cfg.get("mask_ratio", 0.75))
     strategy = str(obj_cfg.get("mask_strategy", "composite"))
     
     patch_size = encoder.patch_size
     num_patches_per_channel = T // patch_size
     
-    # For composite, pick one strategy for the entire batch so all samples
-    # share the same num_mask (required for batched dropout removal in encoder)
-    if strategy == "composite":
-        batch_strategy = pyrandom.choice(["random", "temporal", "signal"])
-    else:
-        batch_strategy = strategy
-    
     # Generate patch-level mask [B, N], True = masked (removed from encoder)
-    patch_mask = generate_patch_mask(B, num_patches_per_channel, C, mask_ratio, batch_strategy, x.device)
+    patch_mask = generate_patch_mask(B, num_patches_per_channel, C, mask_ratio, strategy, x.device)
     
     # Encoder: only visible patches go through transformer
     visible_tokens = encoder(x, mask=patch_mask)  # [B, N_vis, D]
@@ -187,5 +181,4 @@ def forward_loss(
     return loss, {
         "loss": float(loss.detach().item()),
         "mask_ratio": actual_ratio,
-        "mask_strategy": batch_strategy,
     }
