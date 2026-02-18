@@ -79,17 +79,57 @@ def _build_label_names(cfg: Any, logger: logging.Logger) -> Dict[int, str]:
 
 
 def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_class: int, seed: int) -> DataLoader:
+    """Subsample train loader to k windows per class.
+
+    Uses a lightweight label-only parquet scan (no preprocessing/STFT).
+    """
+    import pyarrow.dataset as pa_ds
+    from imu_lm.data.windowing import resolve_window_label
+
     raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
     dataset = loader.dataset
     rng = random.Random(seed)
     per_class: Dict[int, List[int]] = {idx: [] for idx in raw_to_idx.values()}
 
+    # Bulk read label column from parquet — one query per unique dataset name
+    pa = pa_ds.dataset(dataset.parquet_path, format="parquet")
+    needed_keys = set(dataset._keys)
+    ds_names = set(k.dataset for k in needed_keys)
+
+    label_col = dataset._label_col
+    subj_col = dataset._subject_col
+    sess_col = dataset._session_col
+    ds_col = dataset._dataset_col
+    time_col = dataset._time_col
+    cols = [label_col, subj_col, sess_col]
+    if time_col:
+        cols.append(time_col)
+
+    session_labels: Dict = {}
+    for ds_name in ds_names:
+        table = pa.to_table(columns=cols, filter=pa_ds.field(ds_col) == ds_name)
+        df = table.to_pandas()
+        if time_col and time_col in df.columns:
+            df = df.sort_values([subj_col, sess_col, time_col])
+        for (subj, sess), grp in df.groupby([subj_col, sess_col]):
+            from imu_lm.data.splits import SessionKey
+            key = SessionKey(ds_name, str(subj), str(sess))
+            if key in needed_keys:
+                session_labels[key] = grp[label_col].to_numpy()
+
+    # Resolve per-window labels in memory (no sensor data loaded)
+    T = dataset._T
     for idx in range(len(dataset)):
-        item = dataset[idx]
-        if item is None:
+        key = dataset._keys[dataset._sess_idx[idx]]
+        y_arr = session_labels.get(key)
+        if y_arr is None:
             continue
-        _, y = item
-        raw = int(y)
+        start = int(dataset._starts[idx])
+        yw = y_arr[start : start + T]
+        label = resolve_window_label(yw, dataset.cfg)
+        if label is None:
+            continue
+        raw = int(label)
         if raw not in raw_to_idx:
             continue
         mapped = raw_to_idx[raw]
@@ -98,12 +138,13 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
     keep_indices: List[int] = []
     for cls_idx, idxs in per_class.items():
         rng.shuffle(idxs)
-        keep_indices.extend(idxs[: shots_per_class])
+        keep_indices.extend(idxs[:shots_per_class])
 
     subset = Subset(dataset, keep_indices)
+    bs = loader.batch_size or 256
     return DataLoader(
         subset,
-        batch_size=loader.batch_size,
+        batch_size=bs,
         shuffle=True,
         num_workers=loader.num_workers,
         pin_memory=loader.pin_memory,

@@ -33,6 +33,16 @@ def load_meta(run_dir: str) -> Dict[str, Any]:
         return json.load(f)
 
 
+def save_label_map(label_map: Dict[str, Any], run_dir: str):
+    """Save label_map.json to artifacts/. Call right after build_label_map()."""
+    paths = artifact_paths(run_dir)
+    label_map_path = os.path.join(paths["dir"], "label_map.json")
+    serialisable = {k: v for k, v in label_map.items() if k != "unknown_id" or v is not None}
+    with open(label_map_path, "w") as f:
+        json.dump(serialisable, f, indent=2)
+    print(f"[artifact] saved label_map to {label_map_path}")
+
+
 def save_encoder(encoder: torch.nn.Module, meta: Dict[str, Any], run_dir: str):
     """Save full pickled encoder + meta. Legacy; prefer save_meta + checkpoints."""
     paths = artifact_paths(run_dir)

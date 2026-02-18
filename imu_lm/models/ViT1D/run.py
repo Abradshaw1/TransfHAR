@@ -15,7 +15,7 @@ from imu_lm.models.ViT1D.model import ViT1DEncoder, ViT1DDecoder
 from imu_lm.objectives import masked_1d as masked_1d_obj
 from imu_lm.objectives import supervised as supervised_obj
 from imu_lm.probe.head import LinearHead
-from imu_lm.runtime_consistency.artifacts import save_meta
+from imu_lm.runtime_consistency.artifacts import save_label_map, save_meta
 from imu_lm.runtime_consistency.trainer import Trainer
 from imu_lm.utils.helpers import cfg_get
 from imu_lm.utils.training import (
@@ -66,6 +66,7 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
         # Supervised: encoder + LinearHead, auto-discover classes from data
         loaders = make_loaders(cfg)
         label_map = build_label_map(loaders["train_loader"], cfg)
+        save_label_map(label_map, run_dir)
         raw_to_idx = label_map["raw_to_idx"]
         num_classes = label_map["num_classes"]
         head = LinearHead(encoder.embed_dim, num_classes)

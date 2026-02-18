@@ -8,10 +8,11 @@ probe:
   encoder_meta_relpath: "artifacts/encoder_meta.json"
   drop_unknown: false
   min_count_per_class: 0
-  fewshot_enabled: false
-  fewshot_shots_per_class: 5 # 1 shot = 1 window of data
+  fewshot_enabled: true
+  fewshot_shots_per_class: 5 # single int: 1 shot = 1 window of data
   fewshot_seed: 0
-  num_epochs: 1000000 # set high to converge by metric
+  fewshot_probe_dirname: "fewshot_probe_samosa"  # output: run_dir/fewshot_probe_k{shots}/
+  num_epochs: 3 # set high to converge by metric
   batch_size: 256
   lr: 0.0001
   weight_decay: 0.0
@@ -20,4 +21,4 @@ probe:
   amp: true
   selection_metric: macro_f1
   log_every_steps: 5
-  probe_dirname: "probe"
+  probe_dirname: "probe_samosa"

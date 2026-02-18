@@ -1,6 +1,6 @@
 paths:
-  runs_root: "/home/aidan/TransfHAR/runs"
-  dataset_path: "/home/aidan/TransfHAR/imu_lm/data/data_drive/IMULM_master_dataset.parquet"
+  runs_root: "/shared/imu_lm/TransfHAR/runs"
+  dataset_path: "/shared/imu_lm/IMULM_master_dataset.parquet"
 
 logging:
   log_every_steps: 5

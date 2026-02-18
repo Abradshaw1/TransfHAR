@@ -181,4 +181,5 @@ def forward_loss(
     return loss, {
         "loss": float(loss.detach().item()),
         "mask_ratio": actual_ratio,
+        "mask_strategy": strategy,
     }

@@ -14,7 +14,7 @@ from imu_lm.models.ViT2D.model import ViTEncoder
 from imu_lm.objectives import masked_2d as masked_2d_obj
 from imu_lm.objectives import supervised as supervised_obj
 from imu_lm.probe.head import LinearHead
-from imu_lm.runtime_consistency.artifacts import save_encoder, save_supervised_model
+from imu_lm.runtime_consistency.artifacts import save_encoder, save_label_map, save_meta, save_supervised_model
 from imu_lm.runtime_consistency.trainer import Trainer
 from imu_lm.utils.helpers import cfg_get
 from imu_lm.utils.training import (
@@ -34,10 +34,27 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     # Create encoder (always needed)
     encoder = ViTEncoder(cfg)
     
+    # Save architecture metadata at run start (so Ctrl+C still allows reload)
+    meta = {
+        "embedding_dim": encoder.embed_dim,
+        "encoding": "spectrogram_image",
+        "objective": objective_type,
+        "backbone": encoder.backbone_name,
+        "input_spec": {
+            "channels": encoder.num_channels,
+            "height": encoder.resize_hw[0],
+            "width": encoder.resize_hw[1],
+            "patch_size": encoder.patch_size,
+        },
+        "normalization": cfg_get(cfg, ["preprocess", "normalize", "method"], None),
+    }
+    save_meta(meta, run_dir)
+    
     if objective_type == "supervised":
         # Supervised: encoder + LinearHead, auto-discover classes from data
         loaders = make_loaders(cfg)
         label_map = build_label_map(loaders["train_loader"], cfg)
+        save_label_map(label_map, run_dir)
         raw_to_idx = label_map["raw_to_idx"]
         num_classes = label_map["num_classes"]
         head = LinearHead(encoder.embed_dim, num_classes)
