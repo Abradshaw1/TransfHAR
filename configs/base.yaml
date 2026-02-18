@@ -17,8 +17,8 @@ data:
   time_column: timestamp_ns
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
-  sensor_columns: [acc_x, acc_y, acc_z]
-  train_on_datasets: ["wear"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
+  sensor_columns: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+  train_on_datasets: ["capture24", "opportunity++", "wear", "pamap2", "recofit", "shoaib", "ut_watch", "wisdm"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
   num_workers: 8
   pin_memory: true
@@ -54,7 +54,7 @@ preprocess:
     enabled: true
     type: lowpass             
     order: 4
-    low_hz: 0.5
+    low_hz: 0.25
     high_hz: 24
 
   normalize:
@@ -62,10 +62,7 @@ preprocess:
     method: zscore             # zscore | robust | minmax
     eps: 1e-6
 
-# Default: raw 1D IMU [C, T]. Set spectrogram.enabled: true for ViT-MAE (converts to image)
-raw1d_imu:
-  enabled: true  # informational flag; raw 1D is always available
-
+# Set spectrogram.enabled: true for ViT-MAE (converts to image); otherwise raw 1D [C, T]
 spectrogram:
   enabled: false
   n_fft: 128
