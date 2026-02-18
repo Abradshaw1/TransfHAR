@@ -1,4 +1,8 @@
 # TSTransformer1D: Time-Series Transformer for 1D IMU signals
+# Override base.yaml: TSTransformer1D uses raw [C, T] input, not spectrograms
+spectrogram:
+  enabled: false
+
 tstransformer1d:
   encoder:
     d_model: 128

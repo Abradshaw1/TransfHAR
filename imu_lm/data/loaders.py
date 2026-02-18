@@ -181,15 +181,16 @@ class WindowDataset(Dataset):
         if Xproc is None:
             return None
 
-        Xproc = apply_augment(Xproc.T, self.cfg).T
+        Xproc = apply_augment(Xproc, self.cfg)              # [T, C] -> [T, C]
 
         if self._spec_enabled:
-            out = stft_encode(torch.from_numpy(Xproc).float(), self.cfg)
+            x_ct = torch.from_numpy(Xproc).float().T           # [T, C] -> [C, T]
+            out = stft_encode(x_ct, self.cfg)
             x_tensor = out[1] if isinstance(out, tuple) else out
             if x_tensor.dim() != 3:
                 return None
         else:
-            x_tensor = torch.from_numpy(Xproc).float()
+            x_tensor = torch.from_numpy(Xproc).float().T       # [T, C] -> [C, T]
 
         y_tensor = torch.tensor(label, dtype=torch.long)
         return x_tensor, y_tensor

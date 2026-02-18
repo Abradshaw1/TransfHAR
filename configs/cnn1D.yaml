@@ -1,4 +1,8 @@
 # this is same as samosa architecture
+# Override base.yaml: CNN1D uses raw [C, T] input, not spectrograms
+spectrogram:
+  enabled: false
+
 cnn1d:
   encoder:
     conv_filters: [128, 128, 256, 256]
