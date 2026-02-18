@@ -182,15 +182,15 @@ class WindowDataset(Dataset):
             return None
 
         Xproc = apply_augment(Xproc, self.cfg)              # [T, C] -> [T, C]
+        x_ct = torch.from_numpy(Xproc).float().T             # [T, C] -> [C, T]  (single transpose)
 
         if self._spec_enabled:
-            x_ct = torch.from_numpy(Xproc).float().T           # [T, C] -> [C, T]
             out = stft_encode(x_ct, self.cfg)
             x_tensor = out[1] if isinstance(out, tuple) else out
             if x_tensor.dim() != 3:
                 return None
         else:
-            x_tensor = torch.from_numpy(Xproc).float().T       # [T, C] -> [C, T]
+            x_tensor = x_ct
 
         y_tensor = torch.tensor(label, dtype=torch.long)
         return x_tensor, y_tensor
@@ -281,7 +281,7 @@ def _make_loader(dataset: WindowDataset, batch_size: int, shuffle: bool, num_wor
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=False,

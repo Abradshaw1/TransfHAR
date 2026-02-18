@@ -1,6 +1,6 @@
 paths:
-  runs_root: "/shared/imu_lm/TransfHAR/runs"
-  dataset_path: "/shared/imu_lm/IMULM_master_dataset.parquet"
+  runs_root: "/home/aidan/TransfHAR/runs"
+  dataset_path: "/home/aidan/TransfHAR/imu_lm/data/data_drive/IMULM_master_dataset.parquet"
 
 logging:
   log_every_steps: 5
@@ -17,19 +17,19 @@ data:
   time_column: timestamp_ns
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
-  sensor_columns: [acc_x, acc_y, acc_z]
-  train_on_datasets: ["wear", "capture24", "opportunity++", "pamap2", "recofit", "ut_watch", "wisdm"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
+  sensor_columns: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+  train_on_datasets: ["wisdm"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
   num_workers: 8
   pin_memory: true
-  batch_size: 512
-  eval_batch_size: 512
+  batch_size: 128
+  eval_batch_size: 128
 
 splits:
   seed: 0
   group_key: subject_id        
   shuffle: true
-  probe_dataset: samosa          # excluded from pretraining splits; used as probe eval target
+  probe_dataset: wisdm        # excluded from pretraining splits; used as probe eval target
   val_ratio: 0.05               # for non-probe training split only
   test_ratio: 0               # held-out test set (used by supervised eval) set to 0 when running MAE
 
@@ -63,12 +63,12 @@ preprocess:
     eps: 1e-6
 
 spectrogram:
-  enabled: true
+  enabled: false
   n_fft: 128
   win_length: 64
   hop_length: 2
   center: true
-  return_image: true
+  return_image: false
   log_scale: false             # if true: log1p compression -> scale to [0,1]
 
 gaussian_noise:
