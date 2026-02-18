@@ -268,6 +268,17 @@ def main(cfg: Any, run_dir: str):
 
     meta = _load_encoder_meta(run_dir)
 
+    # Auto-detect spectrogram settings from pretrain config if encoder needs images
+    if meta.get("encoding") == "spectrogram_image":
+        ckpt_path = os.path.join(run_dir, "checkpoints", "best.pt")
+        if not os.path.exists(ckpt_path):
+            ckpt_path = os.path.join(run_dir, "checkpoints", "latest.pt")
+        saved_cfg = torch.load(ckpt_path, map_location="cpu").get("cfg", {})
+        saved_spec = saved_cfg.get("spectrogram", {})
+        if saved_spec:
+            cfg["spectrogram"] = saved_spec
+            logger.info("[probe] auto-loaded spectrogram config from pretrain checkpoint: %s", saved_spec)
+
     probe_dataset = cfg.get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
     logger.info("[probe] building probe loaders (probe_dataset=%s)", probe_dataset)
     loaders = make_loaders(cfg, dataset_filter=[probe_dataset] if probe_dataset else None)

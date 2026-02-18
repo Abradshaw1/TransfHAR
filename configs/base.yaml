@@ -17,7 +17,7 @@ data:
   time_column: timestamp_ns
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
-  sensor_columns: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+  sensor_columns: [acc_x, acc_y, acc_z]
   train_on_datasets: ["capture24", "opportunity++", "wear", "pamap2", "recofit", "shoaib", "ut_watch", "wisdm"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
   num_workers: 8
@@ -51,7 +51,7 @@ preprocess:
     max_missing_frac: 0.2
 
   filter:
-    enabled: true
+    enabled: false
     type: lowpass             
     order: 4
     low_hz: 0.25
@@ -70,6 +70,7 @@ spectrogram:
   hop_length: 2
   center: true
   return_image: false
+  log_scale: false           # log1p before min-max [0,1] normalization (only when return_image: true)
 
 gaussian_noise:
   enabled: false

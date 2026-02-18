@@ -1,6 +1,9 @@
 # ViT-MAE needs spectrogram input [3, F, TT]
+# Only first 3 sensor channels map to R/G/B; extra channels (e.g. gyro) are dropped.
 spectrogram:
   enabled: true
+  return_image: true
+  log_scale: true
 
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
@@ -44,7 +47,7 @@ trainer:
   max_steps: 100000
   grad_clip_norm: 1.0
   grad_accum_steps: 1
-  val_every_steps: 5000
+  val_every_steps: 500
 
   optim:
     name: adamw
