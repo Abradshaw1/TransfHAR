@@ -15,9 +15,11 @@ from imu_lm.models.CNN1D.model import CNN1DEncoder, CNN1DDecoder
 from imu_lm.objectives import masked_1d as masked_1d_obj
 from imu_lm.objectives import supervised as supervised_obj
 from imu_lm.probe.head import LinearHead
+from imu_lm.probe.eval import eval_head
 from imu_lm.runtime_consistency.artifacts import save_encoder, save_label_map, save_meta, save_supervised_model
 from imu_lm.runtime_consistency.trainer import Trainer
 from imu_lm.utils.helpers import cfg_get
+from imu_lm.utils.metrics import format_metrics_summary
 from imu_lm.utils.training import (
     resolve_resume_path,
     build_optimizer_from_params,
@@ -97,29 +99,47 @@ def main(cfg: Any, run_dir: str, resume_ckpt: Optional[str] = None):
     trainer = Trainer(cfg, run_dir)
     trainer.fit(encoder, objective_fn, train_loader, val_loader, optimizer, scheduler, start_step=start_step, extra_modules=extra_modules)
     
-    # Save artifacts
-    data_cfg = cfg_get(cfg, ["data"], {}) or {}
-    sensor_cols = data_cfg.get("sensor_columns", ["acc_x", "acc_y", "acc_z"])
-    
-    meta = {
-        "embedding_dim": encoder.embed_dim,
-        "encoding": "raw_1d_imu",
-        "objective": objective_type,
-        "backbone": "cnn1d",
-        "input_spec": {
-            "channels": len(sensor_cols),
-            "time_steps": T,
-            "format": "[B, C, T]",
-        },
-        "normalization": cfg_get(cfg, ["preprocess", "normalize", "method"], None),
-    }
-    
+    # Save final artifacts (meta was already saved at start; update with training results)
     if objective_type == "supervised":
-        # Supervised: save encoder + head (complete classifier)
         meta["num_classes"] = num_classes
         save_supervised_model(encoder, head, meta, run_dir, label_map=label_map)
+        
+        # Final test evaluation (reuses probe's eval_head — same metrics)
+        import json, os, torch
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Load best checkpoint if available
+        best_path = os.path.join(run_dir, "checkpoints", "best.pt")
+        if os.path.exists(best_path):
+            best_state = torch.load(best_path, map_location="cpu", weights_only=False)
+            encoder.load_state_dict(best_state["model"])
+            if "head" in best_state:
+                head.load_state_dict(best_state["head"])
+            print(f"[eval] loaded best checkpoint from step {best_state.get('step', '?')}")
+        
+        encoder.to(device)
+        head.to(device)
+        
+        eval_results = {}
+        for split_name, loader in [("val", val_loader), ("test", loaders.get("test_loader"))]:
+            if loader is None:
+                continue
+            metrics = eval_head(encoder, head, loader, label_map, device)
+            eval_results[split_name] = metrics
+            print(f"[eval] {split_name}: {format_metrics_summary(metrics)}")
+        
+        # Write summary JSON
+        summary_path = os.path.join(run_dir, "summary.json")
+        summary = {
+            "objective": objective_type,
+            "num_classes": num_classes,
+        }
+        for split_name, metrics in eval_results.items():
+            summary[split_name] = {k: v for k, v in metrics.items() if isinstance(v, (int, float, str))}
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2)
+        print(f"[eval] summary written to {summary_path}")
     else:
-        # MAE: save encoder only (decoder discarded)
         save_encoder(encoder, meta, run_dir)
 
 

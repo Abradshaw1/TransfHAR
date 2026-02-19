@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Optional
 
+import warnings
+
 import numpy as np
 from sklearn.metrics import (
     balanced_accuracy_score,
@@ -34,21 +36,23 @@ def compute_metrics(
     y_true_arr = np.asarray(list(y_true))
     y_pred_arr = np.asarray(list(y_pred))
 
-    bal_acc = float(balanced_accuracy_score(y_true_arr, y_pred_arr))
-    macro_f1 = float(f1_score(y_true_arr, y_pred_arr, average="macro", labels=labels, zero_division=0))
-    macro_precision = float(precision_score(y_true_arr, y_pred_arr, average="macro", labels=labels, zero_division=0))
-    macro_recall = float(recall_score(y_true_arr, y_pred_arr, average="macro", labels=labels, zero_division=0))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        bal_acc = float(balanced_accuracy_score(y_true_arr, y_pred_arr))
+        macro_f1 = float(f1_score(y_true_arr, y_pred_arr, average="macro", labels=labels, zero_division=0))
+        macro_precision = float(precision_score(y_true_arr, y_pred_arr, average="macro", labels=labels, zero_division=0))
+        macro_recall = float(recall_score(y_true_arr, y_pred_arr, average="macro", labels=labels, zero_division=0))
 
     if labels is None:
         labels = sorted(np.unique(y_true_arr).tolist())
     
     # Per-class metrics
-    per_class_f1_vals = f1_score(y_true_arr, y_pred_arr, labels=labels, average=None, zero_division=0)
-    per_class_precision_vals = precision_score(y_true_arr, y_pred_arr, labels=labels, average=None, zero_division=0)
-    per_class_recall_vals = recall_score(y_true_arr, y_pred_arr, labels=labels, average=None, zero_division=0)
-    
-    # Per-class accuracy: correct predictions / total samples for that class
-    cm = confusion_matrix(y_true_arr, y_pred_arr, labels=labels)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        per_class_f1_vals = f1_score(y_true_arr, y_pred_arr, labels=labels, average=None, zero_division=0)
+        per_class_precision_vals = precision_score(y_true_arr, y_pred_arr, labels=labels, average=None, zero_division=0)
+        per_class_recall_vals = recall_score(y_true_arr, y_pred_arr, labels=labels, average=None, zero_division=0)
+        cm = confusion_matrix(y_true_arr, y_pred_arr, labels=labels)
     per_class_correct = np.diag(cm)
     per_class_total = cm.sum(axis=1)
     per_class_acc_vals = np.divide(

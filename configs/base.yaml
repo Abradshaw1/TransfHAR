@@ -17,8 +17,8 @@ data:
   time_column: timestamp_ns
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
-  sensor_columns: [acc_x, acc_y, acc_z]
-  train_on_datasets: ["capture24", "opportunity++", "wear", "pamap2", "recofit", "shoaib", "ut_watch", "wisdm"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
+  sensor_columns: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+  train_on_datasets: ["prism"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
   num_workers: 2
   pin_memory: true
@@ -29,7 +29,7 @@ splits:
   seed: 0
   group_key: subject_id        
   shuffle: true
-  probe_dataset: samosa          # excluded from pretraining splits; used as probe eval target
+  probe_dataset: null          # excluded from pretraining splits; used as probe eval target
   val_ratio: 0.05               # for non-probe training split only
   test_ratio: 0               # held-out test set (used by supervised eval) set to 0 when running MAE
 
@@ -64,13 +64,13 @@ preprocess:
 
 # Set spectrogram.enabled: true for ViT-MAE (converts to image); otherwise raw 1D [C, T]
 spectrogram:
-  enabled: true
+  enabled: false
   n_fft: 128
   win_length: 64
   hop_length: 2
   center: true
-  return_image: true
-  log_scale: true           # log1p before min-max [0,1] normalization (only when return_image: true)
+  return_image: false
+  log_scale: false           # log1p before min-max [0,1] normalization (only when return_image: true)
 
 gaussian_noise:
   enabled: false

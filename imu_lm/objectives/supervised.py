@@ -80,6 +80,6 @@ def forward_loss(
         "acc": float((y.detach().cpu() == preds.detach().cpu()).float().mean()),
         "bal_acc": metrics["bal_acc"],
         "macro_f1": metrics["macro_f1"],
-        "macro_prec": metrics["macro_precision"],
-        "macro_rec": metrics["macro_recall"],
+        "macro_precision": metrics["macro_precision"],
+        "macro_recall": metrics["macro_recall"],
     }

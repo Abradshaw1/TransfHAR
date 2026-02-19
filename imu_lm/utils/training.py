@@ -186,7 +186,7 @@ def load_checkpoint(
         return 0
     
     logger.info("[resume] loading checkpoint from %s", resume_path)
-    state = torch.load(resume_path, map_location="cpu")
+    state = torch.load(resume_path, map_location="cpu", weights_only=False)
     
     if "model" in state:
         model.load_state_dict(state["model"], strict=True)

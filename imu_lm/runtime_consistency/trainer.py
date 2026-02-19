@@ -88,7 +88,7 @@ class Trainer:
         if start_step > 0:
             ckpt_path = self.ckpt_latest
             if os.path.exists(ckpt_path):
-                ckpt = torch.load(ckpt_path, map_location="cpu")
+                ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
                 self.best_val_loss = ckpt.get("best_val_loss", float("inf"))
                 self.epochs_without_improvement = ckpt.get("epochs_without_improvement", 0)
                 self._epoch = ckpt.get("epoch", 0)

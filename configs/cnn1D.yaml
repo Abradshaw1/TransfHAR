@@ -1,35 +1,37 @@
-# this is same as samosa architecture
+# SAMoSA-style 1D CNN architecture
 cnn1d:
   encoder:
     conv_filters: [128, 128, 256, 256]
     kernel_size: 10
     stride: 1
-    activation: relu
+    padding: 0               # SAMoSA uses no padding (valid convolution)
     use_batch_norm: true
     pool_size: 2
+    pool_every: 2             # MaxPool after every 2nd conv layer (SAMoSA: after Conv2 and Conv4)
     dropout: 0.5
     fc_dims: [1000, 500, 250]
-    output_activation: sigmoids
-
-  decoder:
-    decoder_hidden_size: 256
-    decoder_num_layers: 4
 
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
   type: supervised         # mae | supervised
 
-# Override base.yaml splits for supervised training (need test set)
+# Data: override base.yaml to train on a specific dataset
+# Set train_on_datasets to the target dataset(s) for supervised training
+# Set probe_dataset to null so the target dataset isn't excluded from train/val/test
+data:
+  train_on_datasets: [prism]  # change to target dataset, e.g. [samosa], [prism], or [samosa, prism]
+
 splits:
+  probe_dataset: null          # don't exclude any dataset from supervised splits
   test_ratio: 0.1
 
 trainer:
   seed: 42
   amp: true
-  max_steps: 100000
+  max_steps: 100
   grad_clip_norm: 1.0
   grad_accum_steps: 1
-  val_every_steps: 5000
+  val_every_steps: 10
 
   optim:
     name: adam
@@ -47,4 +49,4 @@ trainer:
   early_stopping:
     enabled: true
     monitor: val_loss
-    patience: 5
+    patience: 10

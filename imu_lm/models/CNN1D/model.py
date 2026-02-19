@@ -22,27 +22,36 @@ import torch.nn as nn
 
 
 class CNN1DEncoder(nn.Module):
-    """1D CNN encoder for raw IMU signals [B, C, T].
+    """SAMoSA-style 1D CNN encoder for raw IMU signals [B, C, T].
     
-    Produces embeddings that can be used for any downstream task.
+    Architecture (motion-only, Mollyn et al. 2022):
+      4 Conv1D (k=10, s=1, depths=128,128,256,256) + BN + ReLU + MaxPool(2)
+      → Dropout(0.5)
+      → Flatten  (256 × T_pooled)
+      → 3 FC (1000, 500, 250) + ReLU
+      → Dropout(0.5)
+      → output: [B, 250]  (embed_dim)
     """
     
     def __init__(self, cfg: Any):
         super().__init__()
         
+        from imu_lm.data.windowing import compute_T_and_hop
+        
         cnn_cfg = cfg.get("cnn1d", {}) if isinstance(cfg, dict) else getattr(cfg, "cnn1d", {})
         enc_cfg = cnn_cfg.get("encoder", {}) or {}
         
-        # Conv stack config (SAMoSA defaults) - nested under cnn1d.encoder
+        # Conv stack config (SAMoSA defaults)
         conv_filters: List[int] = enc_cfg.get("conv_filters", [128, 128, 256, 256])
         kernel_size: int = int(enc_cfg.get("kernel_size", 10))
         stride: int = int(enc_cfg.get("stride", 1))
+        padding: int = int(enc_cfg.get("padding", 0))
         use_batch_norm: bool = bool(enc_cfg.get("use_batch_norm", True))
         pool_size: int = int(enc_cfg.get("pool_size", 2))
+        pool_every: int = int(enc_cfg.get("pool_every", 2))
         dropout: float = float(enc_cfg.get("dropout", 0.5))
-        activation: str = enc_cfg.get("activation", "relu")
         
-        # FC layers config (SAMoSA defaults) - nested under cnn1d.encoder
+        # FC layers config (SAMoSA defaults)
         fc_dims: List[int] = enc_cfg.get("fc_dims", [1000, 500, 250])
         
         # Input channels from data config
@@ -50,43 +59,54 @@ class CNN1DEncoder(nn.Module):
         sensor_cols = data_cfg.get("sensor_columns", ["acc_x", "acc_y", "acc_z"])
         in_channels = len(sensor_cols)
         
-        # Build conv layers
+        # Input temporal dimension
+        T, _ = compute_T_and_hop(cfg)
+        
+        # Build conv layers: Conv1D + BN + ReLU; MaxPool only after every pool_every layers
         self.conv_layers = nn.ModuleList()
         self.pool_layers = nn.ModuleList()
         
         prev_channels = in_channels
-        for out_channels in conv_filters:
+        for i, out_channels in enumerate(conv_filters):
             layers = [
-                nn.Conv1d(prev_channels, out_channels, kernel_size, stride=stride, padding=kernel_size // 2)
+                nn.Conv1d(prev_channels, out_channels, kernel_size, stride=stride, padding=padding),
             ]
             if use_batch_norm:
                 layers.append(nn.BatchNorm1d(out_channels))
-            if activation == "relu":
-                layers.append(nn.ReLU(inplace=True))
-            elif activation == "gelu":
-                layers.append(nn.GELU())
-            layers.append(nn.Dropout(dropout))
-            
+            layers.append(nn.ReLU(inplace=True))
             self.conv_layers.append(nn.Sequential(*layers))
-            self.pool_layers.append(nn.MaxPool1d(pool_size))
+            # MaxPool after every pool_every-th conv layer (SAMoSA: after 2nd and 4th)
+            if (i + 1) % pool_every == 0:
+                self.pool_layers.append(nn.MaxPool1d(pool_size))
+            else:
+                self.pool_layers.append(nn.Identity())
             prev_channels = out_channels
         
-        self.conv_out_channels = conv_filters[-1] if conv_filters else in_channels
-        self.adaptive_pool = nn.AdaptiveAvgPool1d(1)
+        # Post-conv dropout (single, after entire conv stack)
+        self.conv_dropout = nn.Dropout(dropout)
         
-        # FC layers
+        # Compute flatten dim via dummy forward through conv stack
+        with torch.no_grad():
+            dummy = torch.zeros(1, in_channels, T)
+            for conv, pool in zip(self.conv_layers, self.pool_layers):
+                dummy = pool(conv(dummy))
+            self.flatten_dim = dummy.shape[1] * dummy.shape[2]  # channels × T_pooled
+        
+        # FC layers: Linear + ReLU (no per-layer dropout)
         self.fc_layers = nn.ModuleList()
-        prev_dim = self.conv_out_channels
+        prev_dim = self.flatten_dim
         for fc_dim in fc_dims:
             self.fc_layers.append(nn.Sequential(
                 nn.Linear(prev_dim, fc_dim),
                 nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
             ))
             prev_dim = fc_dim
         
+        # Post-FC dropout (single, after entire FC stack)
+        self.fc_dropout = nn.Dropout(dropout)
+        
         # Final embedding dimension
-        self.embed_dim = fc_dims[-1] if fc_dims else self.conv_out_channels
+        self.embed_dim = fc_dims[-1] if fc_dims else self.flatten_dim
         
         # Store arch info for external use (e.g., decoder construction)
         self.in_channels = in_channels
@@ -94,18 +114,19 @@ class CNN1DEncoder(nn.Module):
         self.pool_size = pool_size
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Full encoder: [B, C, T] → [B, embed_dim]."""
-        # Conv stack
+        """[B, C, T] → [B, embed_dim]."""
+        # Conv stack: conv + BN + ReLU + pool per layer
         for conv, pool in zip(self.conv_layers, self.pool_layers):
-            x = conv(x)
-            x = pool(x)
+            x = pool(conv(x))
+        x = self.conv_dropout(x)
         
-        # Global pooling
-        x = self.adaptive_pool(x).squeeze(-1)  # [B, conv_out_channels]
+        # Flatten: [B, 256, T_pooled] → [B, 256 * T_pooled]
+        x = x.flatten(1)
         
-        # FC layers
+        # FC stack
         for fc in self.fc_layers:
             x = fc(x)
+        x = self.fc_dropout(x)
         
         return x
 
