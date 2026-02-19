@@ -188,6 +188,8 @@ class Trainer:
             mod.eval()
         total_loss = 0.0
         count = 0
+        all_logs_keys = set()
+        accum_logs: Dict[str, float] = {}
         with torch.no_grad():
             for batch in val_loader:
                 if batch is None:
@@ -197,13 +199,20 @@ class Trainer:
                     loss, logs = objective_step(batch, model, self.cfg)
                 total_loss += float(loss.detach().item())
                 count += 1
+                for k, v in logs.items():
+                    if isinstance(v, (int, float)) and k != "loss":
+                        accum_logs[k] = accum_logs.get(k, 0.0) + float(v)
+                        all_logs_keys.add(k)
         if count == 0:
             return None
         avg_loss = total_loss / count
-        line = f"step={step} split=val loss={avg_loss:.6f}"
+        avg_logs: Dict[str, float] = {"loss": avg_loss, "epoch": self._epoch}
+        for k in sorted(all_logs_keys):
+            avg_logs[k] = accum_logs[k] / count
+        line = self._format_log(step, "val", self._get_lr(None), avg_logs)
         metrics_f.write(line + "\n")
         print(line)
-        self._wandb_log("val", {"loss": avg_loss}, step)
+        self._wandb_log("val", avg_logs, step)
         return avg_loss
 
     def _wandb_log(self, split: str, logs: Dict[str, float], step: int, lr: float = None):

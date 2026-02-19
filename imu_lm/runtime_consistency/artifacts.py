@@ -83,7 +83,7 @@ def load_encoder(run_dir: str, ckpt_name: str = "best", map_location=None):
         ckpt_path = os.path.join(run_dir, "checkpoints", f"{ckpt_name}.pt")
         if not os.path.exists(ckpt_path):
             ckpt_path = os.path.join(run_dir, "checkpoints", "latest.pt")
-        state = torch.load(ckpt_path, map_location=map_location or "cpu")
+        state = torch.load(ckpt_path, map_location=map_location or "cpu", weights_only=False)
         cfg = state["cfg"]
         encoder = _build_encoder_from_cfg(backbone, cfg)
         encoder.load_state_dict(state["model"], strict=True)

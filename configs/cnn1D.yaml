@@ -17,9 +17,11 @@ cnn1d:
 
 # Objective: "mae" (self-supervised) or "supervised" (classification)
 objective:
-  type: mae                # mae | supervised
-  mask_ratio: 0.75
-  mask_strategy: composite
+  type: supervised         # mae | supervised
+
+# Override base.yaml splits for supervised training (need test set)
+splits:
+  test_ratio: 0.1
 
 trainer:
   seed: 42

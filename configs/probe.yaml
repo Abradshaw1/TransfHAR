@@ -8,7 +8,7 @@ probe:
   encoder_meta_relpath: "artifacts/encoder_meta.json"
   drop_unknown: false
   min_count_per_class: 0
-  fewshot_enabled: true
+  fewshot_enabled: false
   fewshot_shots_per_class: 5 # single int: 1 shot = 1 window of data
   fewshot_seed: 0
   fewshot_probe_dirname: "fewshot_probe_samosa"  # output: run_dir/fewshot_probe_k{shots}/
