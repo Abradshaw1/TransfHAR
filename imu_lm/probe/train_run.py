@@ -273,7 +273,7 @@ def main(cfg: Any, run_dir: str):
         ckpt_path = os.path.join(run_dir, "checkpoints", "best.pt")
         if not os.path.exists(ckpt_path):
             ckpt_path = os.path.join(run_dir, "checkpoints", "latest.pt")
-        saved_cfg = torch.load(ckpt_path, map_location="cpu").get("cfg", {})
+        saved_cfg = torch.load(ckpt_path, map_location="cpu", weights_only=False).get("cfg", {})
         saved_spec = saved_cfg.get("spectrogram", {})
         if saved_spec:
             cfg["spectrogram"] = saved_spec
