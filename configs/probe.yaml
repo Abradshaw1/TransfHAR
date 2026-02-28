@@ -1,5 +1,5 @@
 splits:
-  probe_dataset: samosa
+  probe_dataset: utd_mhad
   probe_ratios: [0.7, 0.1, 0.2]  # train/val/test inside probe dataset
   probe_stratify_by_label: true
 
@@ -11,8 +11,8 @@ probe:
   fewshot_enabled: false
   fewshot_shots_per_class: 5 # single int: 1 shot = 1 window of data
   fewshot_seed: 0
-  fewshot_probe_dirname: "fewshot_probe_samosa"  # output: run_dir/fewshot_probe_k{shots}/
-  num_epochs: 3 # set high to converge by metric
+  fewshot_probe_dirname: "fewshot_probe_utd_mhad"  # output: run_dir/fewshot_probe_k{shots}/
+  num_epochs: 1000000 # set high to converge by metric
   batch_size: 256
   lr: 0.0001
   weight_decay: 0.0
@@ -21,4 +21,4 @@ probe:
   amp: true
   selection_metric: macro_f1
   log_every_steps: 5
-  probe_dirname: "probe_samosa"
+  probe_dirname: "probe_utd_mhad"

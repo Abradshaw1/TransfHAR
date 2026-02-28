@@ -29,7 +29,7 @@ splits:
   seed: 0
   group_key: subject_id        
   shuffle: true
-  probe_dataset: null          # excluded from pretraining splits; used as probe eval target
+  probe_dataset: utd_mhad          # excluded from pretraining splits; used as probe eval target
   val_ratio: 0.05               # for non-probe training split only
   test_ratio: 0               # held-out test set (used by supervised eval) set to 0 when running MAE
 
