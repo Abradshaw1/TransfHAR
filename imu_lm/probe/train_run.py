@@ -153,7 +153,7 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
     )
 
 
-def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int, epoch: int = 0):
+def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp: bool, grad_clip_norm: float, scaler: GradScaler, logger: logging.Logger, log_every_steps: int, epoch: int = 0, class_weights: torch.Tensor = None):
     encoder.eval()
     head.train()
     total_loss = 0.0
@@ -176,7 +176,7 @@ def _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_
             with torch.no_grad():
                 feats = encoder(x)
             logits = head(feats)
-            loss = F.cross_entropy(logits, y)
+            loss = F.cross_entropy(logits, y, weight=class_weights)
 
         scaler.scale(loss).backward()
         if grad_clip_norm is not None and grad_clip_norm > 0:
@@ -390,12 +390,29 @@ def main(cfg: Any, run_dir: str):
     log_every_steps = int(train_cfg.get("log_every_steps", 5))
     scaler = GradScaler("cuda", enabled=use_amp)
 
-    best_metric = -1e9
+    minimize = selection_metric == "loss"
+    best_metric = 1e9 if minimize else -1e9
     best_epoch = -1
     epochs_no_improve = 0
 
+    # Class-weighted loss
+    class_weights = None
+    if bool(probe_cfg.get("class_weighted_loss", False)):
+        counts = torch.zeros(num_classes)
+        for batch in train_loader:
+            if batch is None:
+                continue
+            _, y_raw = batch
+            for v in y_raw.tolist():
+                idx = label_map["raw_to_idx"].get(int(v))
+                if idx is not None:
+                    counts[idx] += 1
+        class_weights = (1.0 / counts.clamp(min=1)).to(device)
+        class_weights = class_weights / class_weights.sum() * num_classes
+        logger.info("[probe] class_weighted_loss enabled: weights=%s", class_weights.cpu().tolist())
+
     for epoch in range(1, num_epochs + 1):
-        train_metrics = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps, epoch=epoch)
+        train_metrics = _train_epoch(train_loader, encoder, head, optimizer, device, label_map, use_amp, grad_clip, scaler, logger, log_every_steps, epoch=epoch, class_weights=class_weights)
         val_metrics = eval_head(encoder, head, val_loader, label_map, device) if val_loader is not None else {}
 
         # Full metrics to file (includes per-class)
@@ -425,7 +442,8 @@ def main(cfg: Any, run_dir: str):
         else:
             metric_val = train_metrics.get(selection_metric, None)
 
-        if metric_val is not None and metric_val > best_metric:
+        improved = (metric_val < best_metric) if minimize else (metric_val > best_metric)
+        if metric_val is not None and improved:
             best_metric = metric_val
             best_epoch = epoch
             epochs_no_improve = 0

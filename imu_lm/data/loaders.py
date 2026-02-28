@@ -314,6 +314,15 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
     mode = "probe" if is_probe else "pretrain"
     logger.info("[%s] build_session_index path=%s dataset_filter=%s", mode, parquet_path, scan_filter)
     session_index = build_session_index(parquet_path, cfg, dataset_filter=scan_filter)
+
+    # Filter to a single task when probe_task is set (e.g. "skin_care", "MakeCereal")
+    probe_task = cfg_get(cfg, ["probe", "probe_task"], None) if is_probe else None
+    if probe_task:
+        session_col = cfg_get(cfg, ["data", "session_column"], "session_id")
+        mask = session_index[session_col].str.lower().str.startswith(probe_task.lower())
+        session_index = session_index[mask].reset_index(drop=True)
+        logger.info("[probe] probe_task=%s filtered sessions=%d", probe_task, len(session_index))
+
     dataset_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
     datasets_in_run = sorted(session_index[dataset_col].unique().tolist())
     logger.info("[%s] sessions=%d datasets=%d: %s", mode, len(session_index), len(datasets_in_run), datasets_in_run)
