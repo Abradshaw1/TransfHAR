@@ -52,7 +52,7 @@ def main():
             wandb.init(
                 project=wb_cfg.get("project", "imu-lm"),
                 entity=wb_cfg.get("entity", None),
-                name=f"{args.run}-probe",
+                name=f"{args.run}-{cfg.get('probe', {}).get('probe_dirname', 'probe')}",
                 config=cfg,
                 dir=run_dir,
             )
