@@ -9,8 +9,8 @@ probe:
   probe_task: null             # null = all labels; set to filter by task Prsim only: (['MakeCereal', 'MakeCoffee', 'MakeSandwich', 'MakeStencil', 'MakeTea', 'cooking', 'latte_making', 'skin_care'])
   drop_unknown: false
   min_count_per_class: 0
-  fewshot_enabled: false
-  fewshot_shots_per_class: 5 # single int: 1 shot = 1 window of data
+  fewshot_enabled: true
+  fewshot_shots_per_class: 20 # single int: 1 shot = 1 window of data
   fewshot_seed: 0
   fewshot_probe_dirname: "UIST_fewshot_probe_samosa"  # output: run_dir/fewshot_probe_k{shots}/
   num_epochs: 1000000 # set high to converge by metric

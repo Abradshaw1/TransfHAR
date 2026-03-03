@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict
 
 from imu_lm.probe import train_run
+from imu_lm.probe.io import resolve_probe_dir
 from imu_lm.utils.helpers import deep_update, load_yaml
 
 try:
@@ -52,7 +53,7 @@ def main():
             wandb.init(
                 project=wb_cfg.get("project", "imu-lm"),
                 entity=wb_cfg.get("entity", None),
-                name=f"{args.run}-{cfg.get('probe', {}).get('probe_dirname', 'probe')}",
+                name=f"{args.run}-{resolve_probe_dir(os.path.join(runs_root, args.run), cfg)['base'].split(os.sep)[-1]}",
                 config=cfg,
                 dir=run_dir,
             )
