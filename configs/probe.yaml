@@ -1,26 +1,30 @@
 splits:
-  probe_dataset: prism
+  probe_dataset: apple_watch_study
+  group_key: window
   probe_ratios: [0.7, 0.1, 0.2]  # train/val/test inside probe dataset
-  probe_stratify_by_label: true
+  probe_stratify_by_label: false
+
+paths:
+  dataset_path: "/shared/imu_lm/p1_only_apple_watch_study_clean_data.parquet"
 
 probe:
   encoder_artifact_relpath: "artifacts/encoder.pt"
   encoder_meta_relpath: "artifacts/encoder_meta.json"
-  probe_task: latte_making             # null = all labels; set to filter by task Prsim only: (['MakeCereal', 'MakeCoffee', 'MakeSandwich', 'MakeStencil', 'MakeTea', 'cooking', 'latte_making', 'skin_care'])
+  probe_task: null             # null = all labels; set to filter by task Prsim only: (['MakeCereal', 'MakeCoffee', 'MakeSandwich', 'MakeStencil', 'MakeTea', 'cooking', 'latte_making', 'skin_care'])
   drop_unknown: false
   min_count_per_class: 0
   fewshot_enabled: false
   fewshot_shots_per_class: 20 # single int: 1 shot = 1 window of data
   fewshot_seed: 0
-  fewshot_probe_dirname: "UIST_fewshot_probe_prism_skin_care"  # output: run_dir/fewshot_probe_k{shots}/
+  fewshot_probe_dirname: "test_fewshot_probe_apple_watch_study"  # output: run_dir/fewshot_probe_k{shots}/
   num_epochs: 1000000 # set high to converge by metric
   batch_size: 256
-  lr: 0.001
+  lr: 0.0005
   weight_decay: 0.0001
   grad_clip_norm: 1.0
   early_stop_patience: 40
   amp: true
-  selection_metric: macro_f1
+  selection_metric: bal_acc
   class_weighted_loss: true
   log_every_steps: 5
-  probe_dirname: "UIST2_probe_prism_latte_making_FFT"
+  probe_dirname: "test_probe_apple_watch_study"

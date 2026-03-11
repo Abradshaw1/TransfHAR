@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 try:  # required for parquet IO
     import pyarrow.dataset as ds
@@ -337,9 +337,61 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
         logger.info("[%s] %s_loader: sessions=%d windows=%d batch_size=%d", mode, name, len(keys), len(wds), bs)
 
     if is_probe:
-        add("probe_train", splits["probe_train_keys"], batch_size, True)
-        add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
-        add("probe_test", splits["probe_test_keys"], eval_batch_size, False)
+        group_key = cfg_get(cfg, ["splits", "group_key"], None)
+        has_val_test = splits["probe_val_keys"] or splits["probe_test_keys"]
+
+        if group_key == "window" and not has_val_test and splits["probe_train_keys"]:
+            # Single-participant mode: split windows per activity segment temporally.
+            # Each contiguous activity block is split by ratio so all classes appear
+            # in all splits and no overlapping windows leak across splits.
+            all_keys = splits["probe_train_keys"]
+            full_ds = WindowDataset(parquet_path, session_index, all_keys, cfg, split_name="probe")
+            n = len(full_ds)
+            ratios = cfg_get(cfg, ["splits", "probe_ratios"], [0.7, 0.1, 0.2])
+
+            # Read label column to find activity boundaries
+            label_col = cfg_get(cfg, ["data", "label_column"], "dataset_activity_id")
+            key = all_keys[0]
+            pa_ds_obj = ds.dataset(parquet_path, format="parquet")
+            filt = (
+                (ds.field(full_ds._dataset_col) == key.dataset)
+                & (ds.field(full_ds._subject_col) == key.subject_id)
+                & (ds.field(full_ds._session_col) == key.session_id)
+            )
+            y_all = pa_ds_obj.to_table(columns=[label_col], filter=filt)[label_col].to_numpy(zero_copy_only=False)
+            T = full_ds._T
+            # Center label per window (matches label_policy: center)
+            wlabels = np.array([int(y_all[int(full_ds._starts[i]) + T // 2]) for i in range(n)])
+
+            # Find contiguous activity blocks and split each temporally
+            train_idx, val_idx, test_idx = [], [], []
+            block_start = 0
+            for i in range(1, n + 1):
+                if i == n or wlabels[i] != wlabels[i - 1]:
+                    blen = i - block_start
+                    b = (np.cumsum(ratios) * blen).astype(int)
+                    idx = np.arange(block_start, i)
+                    train_idx.extend(idx[:b[0]].tolist())
+                    val_idx.extend(idx[b[0]:b[1]].tolist())
+                    test_idx.extend(idx[b[1]:].tolist())
+                    block_start = i
+
+            for name, sl, bs, shuf in [
+                ("probe_train", train_idx, batch_size, True),
+                ("probe_val", val_idx, eval_batch_size, False),
+                ("probe_test", test_idx, eval_batch_size, False),
+            ]:
+                if not sl:
+                    continue
+                loader = DataLoader(Subset(full_ds, sl), batch_size=bs, shuffle=shuf,
+                                    num_workers=num_workers, pin_memory=pin_memory,
+                                    drop_last=False, collate_fn=collate_skip_none)
+                loaders[f"{name}_loader"] = loader
+                logger.info("[probe] %s_loader: windows=%d (per-activity temporal split)", name, len(sl))
+        else:
+            add("probe_train", splits["probe_train_keys"], batch_size, True)
+            add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
+            add("probe_test", splits["probe_test_keys"], eval_batch_size, False)
     else:
         add("train", splits["train_keys"], batch_size, True)
         add("val", splits["val_keys"], eval_batch_size, False)
