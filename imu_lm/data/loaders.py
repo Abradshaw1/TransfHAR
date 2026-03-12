@@ -337,64 +337,68 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
         logger.info("[%s] %s_loader: sessions=%d windows=%d batch_size=%d", mode, name, len(keys), len(wds), bs)
 
     if is_probe:
-        group_key = cfg_get(cfg, ["splits", "group_key"], None)
-        has_val_test = splits["probe_val_keys"] or splits["probe_test_keys"]
-
-        if group_key == "window" and not has_val_test and splits["probe_train_keys"]:
-            # Single-participant mode: split windows per activity segment temporally.
-            # Each contiguous activity block is split by ratio so all classes appear
-            # in all splits and no overlapping windows leak across splits.
-            all_keys = splits["probe_train_keys"]
-            full_ds = WindowDataset(parquet_path, session_index, all_keys, cfg, split_name="probe")
-            n = len(full_ds)
-            ratios = cfg_get(cfg, ["splits", "probe_ratios"], [0.7, 0.1, 0.2])
-
-            # Read label column to find activity boundaries
-            label_col = cfg_get(cfg, ["data", "label_column"], "dataset_activity_id")
-            key = all_keys[0]
-            pa_ds_obj = ds.dataset(parquet_path, format="parquet")
-            filt = (
-                (ds.field(full_ds._dataset_col) == key.dataset)
-                & (ds.field(full_ds._subject_col) == key.subject_id)
-                & (ds.field(full_ds._session_col) == key.session_id)
-            )
-            y_all = pa_ds_obj.to_table(columns=[label_col], filter=filt)[label_col].to_numpy(zero_copy_only=False)
-            T = full_ds._T
-            # Center label per window (matches label_policy: center)
-            wlabels = np.array([int(y_all[int(full_ds._starts[i]) + T // 2]) for i in range(n)])
-
-            # Find contiguous activity blocks and split each temporally
-            train_idx, val_idx, test_idx = [], [], []
-            block_start = 0
-            for i in range(1, n + 1):
-                if i == n or wlabels[i] != wlabels[i - 1]:
-                    blen = i - block_start
-                    b = (np.cumsum(ratios) * blen).astype(int)
-                    idx = np.arange(block_start, i)
-                    train_idx.extend(idx[:b[0]].tolist())
-                    val_idx.extend(idx[b[0]:b[1]].tolist())
-                    test_idx.extend(idx[b[1]:].tolist())
-                    block_start = i
-
-            for name, sl, bs, shuf in [
-                ("probe_train", train_idx, batch_size, True),
-                ("probe_val", val_idx, eval_batch_size, False),
-                ("probe_test", test_idx, eval_batch_size, False),
-            ]:
-                if not sl:
-                    continue
-                loader = DataLoader(Subset(full_ds, sl), batch_size=bs, shuffle=shuf,
-                                    num_workers=num_workers, pin_memory=pin_memory,
-                                    drop_last=False, collate_fn=collate_skip_none)
-                loaders[f"{name}_loader"] = loader
-                logger.info("[probe] %s_loader: windows=%d (per-activity temporal split)", name, len(sl))
-        else:
-            add("probe_train", splits["probe_train_keys"], batch_size, True)
-            add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
-            add("probe_test", splits["probe_test_keys"], eval_batch_size, False)
+        add("probe_train", splits["probe_train_keys"], batch_size, True)
+        add("probe_val", splits["probe_val_keys"], eval_batch_size, False)
+        add("probe_test", splits["probe_test_keys"], eval_batch_size, False)
     else:
         add("train", splits["train_keys"], batch_size, True)
         add("val", splits["val_keys"], eval_batch_size, False)
         add("test", splits["test_keys"], eval_batch_size, False)
 
+    return loaders
+
+
+def make_per_participant_loaders(cfg: Any, participant_id: str) -> Dict[str, DataLoader]:
+    """Stratified class-balanced probe loaders for a single participant."""
+    parquet_path = cfg_get(cfg, ["paths", "dataset_path"])
+    batch_size = int(cfg_get(cfg, ["data", "batch_size"], 256))
+    eval_bs = int(cfg_get(cfg, ["data", "eval_batch_size"], batch_size))
+    nw = int(cfg_get(cfg, ["data", "num_workers"], 0))
+    pin = bool(cfg_get(cfg, ["data", "pin_memory"], False))
+    ratios = cfg_get(cfg, ["splits", "probe_ratios"], [0.7, 0.1, 0.2])
+    seed = int(cfg_get(cfg, ["splits", "seed"], 0))
+    label_col = cfg_get(cfg, ["data", "label_column"], "dataset_activity_id")
+    subj_col = cfg_get(cfg, ["data", "subject_column"], "subject_id")
+    probe_ds = cfg_get(cfg, ["splits", "probe_dataset"], None)
+
+    si = build_session_index(parquet_path, cfg, dataset_filter=[probe_ds] if probe_ds else None)
+    si = si[si[subj_col].astype(str) == str(participant_id)].reset_index(drop=True)
+    if si.empty:
+        raise RuntimeError(f"No sessions for participant={participant_id}")
+
+    ds_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
+    sess_col = cfg_get(cfg, ["data", "session_column"], "session_id")
+    keys = [SessionKey(r[ds_col], str(r[subj_col]), str(r[sess_col])) for _, r in si.iterrows()]
+    full = WindowDataset(parquet_path, si, keys, cfg, split_name="probe")
+    n = len(full)
+
+    pa_ds_obj = ds.dataset(parquet_path, format="parquet")
+    T = full._T
+    _lcache: Dict[tuple, np.ndarray] = {}
+    wlabels = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        k = full._keys[full._sess_idx[i]]
+        ck = (k.dataset, k.subject_id, k.session_id)
+        if ck not in _lcache:
+            f = (ds.field(full._dataset_col) == k.dataset) & (ds.field(full._subject_col) == k.subject_id) & (ds.field(full._session_col) == k.session_id)
+            _lcache[ck] = pa_ds_obj.to_table(columns=[label_col], filter=f)[label_col].to_numpy(zero_copy_only=False)
+        wlabels[i] = int(_lcache[ck][int(full._starts[i]) + T // 2])
+
+    rng = np.random.RandomState(seed)
+    train_idx, val_idx, test_idx = [], [], []
+    for lbl in np.unique(wlabels):
+        ci = np.where(wlabels == lbl)[0]
+        rng.shuffle(ci)
+        b = (np.cumsum(ratios) * len(ci)).astype(int)
+        train_idx.extend(ci[:b[0]].tolist())
+        val_idx.extend(ci[b[0]:b[1]].tolist())
+        test_idx.extend(ci[b[1]:].tolist())
+    rng.shuffle(train_idx)
+    rng.shuffle(val_idx)
+
+    loaders: Dict[str, DataLoader] = {}
+    for name, sl, bs, shuf in [("probe_train", train_idx, batch_size, True), ("probe_val", val_idx, eval_bs, False), ("probe_test", test_idx, eval_bs, False)]:
+        if sl:
+            loaders[f"{name}_loader"] = DataLoader(Subset(full, sl), batch_size=bs, shuffle=shuf, num_workers=nw, pin_memory=pin, drop_last=False, collate_fn=collate_skip_none)
+    logger.info("[probe] participant=%s classes=%d train=%d val=%d test=%d", participant_id, len(np.unique(wlabels)), len(train_idx), len(val_idx), len(test_idx))
     return loaders

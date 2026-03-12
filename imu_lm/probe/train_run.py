@@ -280,8 +280,14 @@ def main(cfg: Any, run_dir: str):
             logger.info("[probe] auto-loaded spectrogram config from pretrain checkpoint: %s", saved_spec)
 
     probe_dataset = cfg.get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
-    logger.info("[probe] building probe loaders (probe_dataset=%s)", probe_dataset)
-    loaders = make_loaders(cfg, dataset_filter=[probe_dataset] if probe_dataset else None)
+    _pid = cfg.get("_participant_id") if isinstance(cfg, dict) else None
+    if _pid:
+        logger.info("[probe] building per-participant loaders (participant=%s)", _pid)
+        from imu_lm.data.loaders import make_per_participant_loaders
+        loaders = make_per_participant_loaders(cfg, _pid)
+    else:
+        logger.info("[probe] building probe loaders (probe_dataset=%s)", probe_dataset)
+        loaders = make_loaders(cfg, dataset_filter=[probe_dataset] if probe_dataset else None)
     train_loader = loaders.get("probe_train_loader")
     val_loader = loaders.get("probe_val_loader") if loaders else None
     test_loader = loaders.get("probe_test_loader") if loaders else None

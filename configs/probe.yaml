@@ -1,11 +1,10 @@
 splits:
   probe_dataset: apple_watch_study
-  group_key: window
   probe_ratios: [0.7, 0.1, 0.2]  # train/val/test inside probe dataset
-  probe_stratify_by_label: false
+  probe_stratify_by_label: true
 
 paths:
-  dataset_path: "/shared/imu_lm/p1_only_apple_watch_study_clean_data.parquet"
+  dataset_path: "/shared/p123_apple_watch_study_clean_data.parquet"
 
 probe:
   encoder_artifact_relpath: "artifacts/encoder.pt"
@@ -27,4 +26,5 @@ probe:
   selection_metric: bal_acc
   class_weighted_loss: true
   log_every_steps: 5
-  probe_dirname: "test_probe_apple_watch_study"
+  probe_dirname: "test_probe_apple_watch_study_p123"
+  user_study_mode: true           # true = per-participant probe (splits within each participant)

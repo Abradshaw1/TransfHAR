@@ -211,13 +211,10 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
     rng = np.random.RandomState(seed)
 
     def group_sessions(df: pd.DataFrame) -> List[np.ndarray]:
-        if group_key == "window":
-            groups = [df.iloc[[i]] for i in range(len(df))]
-        else:
-            groups = []
-            by = _group_key(df[group_key] if group_key in df else df[session_col], group_key)
-            for _, g in df.groupby(by):
-                groups.append(g)
+        groups = []
+        by = _group_key(df[group_key] if group_key in df else df[session_col], group_key)
+        for _, g in df.groupby(by):
+            groups.append(g)
         if shuffle:
             rng.shuffle(groups)
         return groups
@@ -244,16 +241,10 @@ def make_splits(session_index: pd.DataFrame, cfg: Any) -> Dict[str, List[Session
 
         def group_label_hist(df: pd.DataFrame) -> List[Tuple[pd.DataFrame, Dict[int, int]]]:
             groups = []
-            if group_key == "window":
-                for i in range(len(df)):
-                    g = df.iloc[[i]]
-                    hist = g[label_col].value_counts().to_dict()
-                    groups.append((g, hist))
-            else:
-                by = _group_key(df[group_key] if group_key in df else df[session_col], group_key)
-                for _, g in df.groupby(by):
-                    hist = g[label_col].value_counts().to_dict()
-                    groups.append((g, hist))
+            by = _group_key(df[group_key] if group_key in df else df[session_col], group_key)
+            for _, g in df.groupby(by):
+                hist = g[label_col].value_counts().to_dict()
+                groups.append((g, hist))
             if shuffle:
                 rng.shuffle(groups)
             return groups

@@ -60,7 +60,57 @@ def main():
         except Exception as e:
             logging.getLogger(__name__).warning("wandb init failed: %s", e)
 
-    train_run.main(cfg, run_dir)
+    if cfg.get("probe", {}).get("user_study_mode", False):
+        import copy, numpy as np
+        from imu_lm.data.loaders import build_session_index
+        subj_col = cfg.get("data", {}).get("subject_column", "subject_id")
+        probe_ds = cfg.get("splits", {}).get("probe_dataset", None)
+        si = build_session_index(cfg["paths"]["dataset_path"], cfg, dataset_filter=[probe_ds] if probe_ds else None)
+        participants = sorted(si[subj_col].astype(str).unique().tolist())
+        log = logging.getLogger(__name__)
+        log.info("[user_study] %d participants: %s", len(participants), participants)
+        base_dirname = cfg.get("probe", {}).get("probe_dirname", "probe")
+        all_summaries = []
+        for pid in participants:
+            log.info("[user_study] ===== participant=%s =====", pid)
+            if wandb is not None and wandb.run is not None:
+                wandb.finish()
+            if wandb is not None:
+                wb_cfg = cfg.get("wandb", {}) or {}
+                try:
+                    wandb.init(project=wb_cfg.get("project", "imu-lm"), entity=wb_cfg.get("entity", None),
+                               name=f"{args.run}-{base_dirname}-{pid}", config=cfg, dir=run_dir, reinit=True)
+                except Exception as e:
+                    log.warning("wandb init for %s failed: %s", pid, e)
+            pcfg = copy.deepcopy(cfg)
+            pcfg["_participant_id"] = str(pid)
+            pcfg["probe"]["probe_dirname"] = f"{base_dirname}/{pid}"
+            try:
+                train_run.main(pcfg, run_dir)
+                summary_path = os.path.join(run_dir, base_dirname, str(pid), "summary.txt")
+                if os.path.exists(summary_path):
+                    with open(summary_path) as sf:
+                        all_summaries.append({"participant": pid, **json.load(sf)})
+            except Exception as e:
+                log.error("[user_study %s] FAILED: %s", pid, e, exc_info=True)
+        # Aggregate
+        agg_path = os.path.join(run_dir, base_dirname, "aggregate_summary.json")
+        os.makedirs(os.path.dirname(agg_path), exist_ok=True)
+        agg = {"num_participants": len(all_summaries), "participants": all_summaries, "aggregate": {}}
+        for k in ["bal_acc", "macro_f1", "macro_precision", "macro_recall"]:
+            vals = [s.get("test", {}).get(k) for s in all_summaries if isinstance(s.get("test", {}).get(k), (int, float))]
+            if vals:
+                a = np.array(vals)
+                agg["aggregate"][k] = {"mean": float(a.mean()), "std": float(a.std()), "n": len(vals)}
+        with open(agg_path, "w") as af:
+            json.dump(agg, af, indent=2)
+        log.info("[user_study] aggregate written to %s", agg_path)
+        print("\n===== AGGREGATE PROBE RESULTS =====")
+        for k, v in agg["aggregate"].items():
+            print(f"  {k}: mean={v['mean']:.4f} +/- std={v['std']:.4f} (n={v['n']})")
+        print("====================================\n")
+    else:
+        train_run.main(cfg, run_dir)
 
 
 if __name__ == "__main__":
