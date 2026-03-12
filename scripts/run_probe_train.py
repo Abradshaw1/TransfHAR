@@ -69,7 +69,13 @@ def main():
         participants = sorted(si[subj_col].astype(str).unique().tolist())
         log = logging.getLogger(__name__)
         log.info("[user_study] %d participants: %s", len(participants), participants)
-        base_dirname = cfg.get("probe", {}).get("probe_dirname", "probe")
+        probe_local = cfg.get("probe", {})
+        if probe_local.get("fewshot_enabled", False):
+            _fs_dn = probe_local.get("fewshot_probe_dirname", "fewshot_probe")
+            _fs_k = int(probe_local.get("fewshot_shots_per_class", 5))
+            base_dirname = f"{_fs_dn}_k{_fs_k}"
+        else:
+            base_dirname = probe_local.get("probe_dirname", "probe")
         all_summaries = []
         for pid in participants:
             log.info("[user_study] ===== participant=%s =====", pid)

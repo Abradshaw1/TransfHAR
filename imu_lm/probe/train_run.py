@@ -88,19 +88,26 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
 
     raw_to_idx = {int(k): int(v) for k, v in label_map.get("raw_to_idx", {}).items()}
     dataset = loader.dataset
+    # Unwrap Subset (from per-participant loaders) to access WindowDataset attrs
+    if isinstance(dataset, Subset):
+        underlying = dataset.dataset
+        iter_indices = list(dataset.indices)
+    else:
+        underlying = dataset
+        iter_indices = list(range(len(dataset)))
     rng = random.Random(seed)
     per_class: Dict[int, List[int]] = {idx: [] for idx in raw_to_idx.values()}
 
     # Bulk read label column from parquet — one query per unique dataset name
-    pa = pa_ds.dataset(dataset.parquet_path, format="parquet")
-    needed_keys = set(dataset._keys)
+    pa = pa_ds.dataset(underlying.parquet_path, format="parquet")
+    needed_keys = set(underlying._keys)
     ds_names = set(k.dataset for k in needed_keys)
 
-    label_col = dataset._label_col
-    subj_col = dataset._subject_col
-    sess_col = dataset._session_col
-    ds_col = dataset._dataset_col
-    time_col = dataset._time_col
+    label_col = underlying._label_col
+    subj_col = underlying._subject_col
+    sess_col = underlying._session_col
+    ds_col = underlying._dataset_col
+    time_col = underlying._time_col
     cols = [label_col, subj_col, sess_col]
     if time_col:
         cols.append(time_col)
@@ -118,15 +125,15 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
                 session_labels[key] = grp[label_col].to_numpy()
 
     # Resolve per-window labels in memory (no sensor data loaded)
-    T = dataset._T
-    for idx in range(len(dataset)):
-        key = dataset._keys[dataset._sess_idx[idx]]
+    T = underlying._T
+    for idx in iter_indices:
+        key = underlying._keys[underlying._sess_idx[idx]]
         y_arr = session_labels.get(key)
         if y_arr is None:
             continue
-        start = int(dataset._starts[idx])
+        start = int(underlying._starts[idx])
         yw = y_arr[start : start + T]
-        label = resolve_window_label(yw, dataset.cfg)
+        label = resolve_window_label(yw, underlying.cfg)
         if label is None:
             continue
         raw = int(label)
@@ -140,7 +147,7 @@ def _fewshot_subset(loader: DataLoader, label_map: Dict[str, Any], shots_per_cla
         rng.shuffle(idxs)
         keep_indices.extend(idxs[:shots_per_class])
 
-    subset = Subset(dataset, keep_indices)
+    subset = Subset(underlying, keep_indices)
     bs = loader.batch_size or 256
     return DataLoader(
         subset,

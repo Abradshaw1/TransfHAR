@@ -19,6 +19,9 @@ def resolve_probe_dir(run_dir: str, cfg: Any) -> Dict[str, str]:
     else:
         dirname = probe_cfg.get("probe_dirname", "probe")
     base = os.path.join(run_dir, dirname)
+    pid = cfg.get("_participant_id") if isinstance(cfg, dict) else getattr(cfg, "_participant_id", None)
+    if fewshot_enabled and pid:
+        base = os.path.join(base, str(pid))
     paths = {
         "base": base,
         "logs": os.path.join(base, "logs"),
