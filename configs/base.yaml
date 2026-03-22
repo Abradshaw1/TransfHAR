@@ -1,6 +1,6 @@
 paths:
   runs_root: "/shared/imu_lm/TransfHAR/runs/"
-  dataset_path: "/shared/imu_lm/IMULM_master_dataset_v2.parquet"
+  dataset_path: "/shared/UIST_apple_watch_study_clean_data.parquet"
 
 logging:
   log_every_steps: 5

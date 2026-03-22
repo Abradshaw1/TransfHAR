@@ -4,7 +4,7 @@ splits:
   probe_stratify_by_label: true
 
 paths:
-  dataset_path: "/shared/p123_apple_watch_study_clean_data.parquet"
+  dataset_path: "/shared/UIST_apple_watch_study_clean_data.parquet"
 
 probe:
   encoder_artifact_relpath: "artifacts/encoder.pt"
@@ -12,10 +12,10 @@ probe:
   probe_task: null             # null = all labels; set to filter by task Prsim only: (['MakeCereal', 'MakeCoffee', 'MakeSandwich', 'MakeStencil', 'MakeTea', 'cooking', 'latte_making', 'skin_care'])
   drop_unknown: false
   min_count_per_class: 0
-  fewshot_enabled: false
+  fewshot_enabled: true
   fewshot_shots_per_class: 20 # single int: 1 shot = 1 window of data
   fewshot_seed: 0
-  fewshot_probe_dirname: "test_fewshot_probe_apple_watch_study"  # output: run_dir/fewshot_probe_k{shots}/
+  fewshot_probe_dirname: "UIST_fewshot_probe_apple_watch_study"  # output: run_dir/fewshot_probe_k{shots}/
   num_epochs: 1000000 # set high to converge by metric
   batch_size: 256
   lr: 0.0005
@@ -26,5 +26,5 @@ probe:
   selection_metric: bal_acc
   class_weighted_loss: true
   log_every_steps: 5
-  probe_dirname: "test_probe_apple_watch_study_p123"
+  probe_dirname: "UIST_probe_apple_watch_study_FF"
   user_study_mode: true           # true = per-participant probe (splits within each participant)
