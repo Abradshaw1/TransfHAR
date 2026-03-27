@@ -60,7 +60,63 @@ def main():
         except Exception as e:
             logging.getLogger(__name__).warning("wandb init failed: %s", e)
 
-    if cfg.get("probe", {}).get("user_study_mode", False):
+    if cfg.get("probe", {}).get("vocab_scaling", False):
+        import copy, numpy as np, pyarrow.dataset as pa_ds
+        log = logging.getLogger(__name__)
+        probe_local = cfg.get("probe", {})
+        step_size = int(probe_local.get("vocab_scaling_step", 10))
+        seed = int(probe_local.get("vocab_scaling_seed", 0))
+        base_dirname = probe_local.get("probe_dirname", "UIST_probe_apple_watch_study_vocab_scaling")
+        label_col = cfg.get("data", {}).get("label_column", "dataset_activity_id")
+        dataset_col = cfg.get("data", {}).get("dataset_column", "dataset")
+        probe_ds = cfg.get("splits", {}).get("probe_dataset", None)
+        dset = pa_ds.dataset(cfg["paths"]["dataset_path"], format="parquet")
+        filt = pa_ds.field(dataset_col) == probe_ds if probe_ds else None
+        all_classes = sorted(set(int(v) for v in dset.to_table(columns=[label_col], filter=filt)[label_col].to_pylist()))
+        rng = np.random.RandomState(seed)
+        shuffled = list(all_classes)
+        rng.shuffle(shuffled)
+        steps = list(range(step_size, len(all_classes), step_size))
+        if not steps or steps[-1] != len(all_classes):
+            steps.append(len(all_classes))
+        log.info("[vocab_scaling] %d classes, steps=%s", len(all_classes), steps)
+        all_summaries = []
+        for n in steps:
+            step_dir = f"{base_dirname}_C{n}"
+            log.info("[vocab_scaling] ===== C%d =====", n)
+            if wandb is not None and wandb.run is not None:
+                wandb.finish()
+            if wandb is not None:
+                wb_cfg = cfg.get("wandb", {}) or {}
+                try:
+                    wandb.init(project=wb_cfg.get("project", "imu-lm"), entity=wb_cfg.get("entity", None),
+                               name=f"{args.run}-{step_dir}", config=cfg, dir=run_dir, reinit=True)
+                except Exception:
+                    pass
+            scfg = copy.deepcopy(cfg)
+            scfg["probe"]["probe_dirname"] = step_dir
+            scfg["probe"]["_vocab_scaling_classes"] = sorted(shuffled[:n])
+            scfg["_pooled_stratified"] = True
+            try:
+                train_run.main(scfg, run_dir)
+                sp = os.path.join(run_dir, step_dir, "summary.txt")
+                if os.path.exists(sp):
+                    with open(sp) as sf:
+                        all_summaries.append({"n_classes": n, **json.load(sf)})
+            except Exception as e:
+                log.error("[vocab_scaling C%d] FAILED: %s", n, e, exc_info=True)
+        agg_path = os.path.join(run_dir, base_dirname, "vocab_scaling_summary.json")
+        os.makedirs(os.path.dirname(agg_path), exist_ok=True)
+        agg = {"total_classes": len(all_classes), "step_size": step_size, "seed": seed, "steps": all_summaries}
+        with open(agg_path, "w") as af:
+            json.dump(agg, af, indent=2)
+        log.info("[vocab_scaling] summary written to %s", agg_path)
+        print("\n===== VOCAB SCALING RESULTS =====")
+        for s in all_summaries:
+            t = s.get("test", {})
+            print(f"  C{s['n_classes']:3d}: bal_acc={t.get('bal_acc', 0):.4f}  macro_f1={t.get('macro_f1', 0):.4f}")
+        print("=================================\n")
+    elif cfg.get("probe", {}).get("user_study_mode", False):
         import copy, numpy as np
         from imu_lm.data.loaders import build_session_index
         subj_col = cfg.get("data", {}).get("subject_column", "subject_id")

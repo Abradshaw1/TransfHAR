@@ -17,10 +17,10 @@ data:
   time_column: timestamp_ns
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
-  sensor_columns: [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+  sensor_columns: [acc_x, acc_y, acc_z]
   train_on_datasets: ["wear"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
-  num_workers: 2
+  num_workers: 8
   pin_memory: true
   batch_size: 256
   eval_batch_size: 256

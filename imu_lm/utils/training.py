@@ -116,6 +116,7 @@ def build_label_map(
     unknown_id: Optional[int] = None,
     drop_unknown: bool = True,
     min_count: int = 0,
+    allowed_raw_labels: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Scan a DataLoader to discover unique labels and build contiguous mapping.
 
@@ -136,6 +137,9 @@ def build_label_map(
             counts[v_int] = counts.get(v_int, 0) + 1
 
     kept = [k for k, c in counts.items() if c >= min_count]
+    if allowed_raw_labels is not None:
+        allowed_set = set(int(x) for x in allowed_raw_labels)
+        kept = [k for k in kept if k in allowed_set]
     if not drop_unknown and unknown_id is not None and int(unknown_id) not in kept:
         kept.append(int(unknown_id))
     kept = sorted(kept)

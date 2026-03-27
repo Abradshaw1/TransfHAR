@@ -348,8 +348,8 @@ def make_loaders(cfg: Any, dataset_filter=None) -> Dict[str, DataLoader]:
     return loaders
 
 
-def make_per_participant_loaders(cfg: Any, participant_id: str) -> Dict[str, DataLoader]:
-    """Stratified class-balanced probe loaders for a single participant."""
+def make_per_participant_loaders(cfg: Any, participant_id: str = None) -> Dict[str, DataLoader]:
+    """Stratified class-balanced probe loaders. If participant_id is None, pools all participants."""
     parquet_path = cfg_get(cfg, ["paths", "dataset_path"])
     batch_size = int(cfg_get(cfg, ["data", "batch_size"], 256))
     eval_bs = int(cfg_get(cfg, ["data", "eval_batch_size"], batch_size))
@@ -362,9 +362,10 @@ def make_per_participant_loaders(cfg: Any, participant_id: str) -> Dict[str, Dat
     probe_ds = cfg_get(cfg, ["splits", "probe_dataset"], None)
 
     si = build_session_index(parquet_path, cfg, dataset_filter=[probe_ds] if probe_ds else None)
-    si = si[si[subj_col].astype(str) == str(participant_id)].reset_index(drop=True)
-    if si.empty:
-        raise RuntimeError(f"No sessions for participant={participant_id}")
+    if participant_id is not None:
+        si = si[si[subj_col].astype(str) == str(participant_id)].reset_index(drop=True)
+        if si.empty:
+            raise RuntimeError(f"No sessions for participant={participant_id}")
 
     ds_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
     sess_col = cfg_get(cfg, ["data", "session_column"], "session_id")

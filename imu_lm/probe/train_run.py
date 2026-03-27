@@ -288,8 +288,9 @@ def main(cfg: Any, run_dir: str):
 
     probe_dataset = cfg.get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
     _pid = cfg.get("_participant_id") if isinstance(cfg, dict) else None
-    if _pid:
-        logger.info("[probe] building per-participant loaders (participant=%s)", _pid)
+    _pooled = cfg.get("_pooled_stratified") if isinstance(cfg, dict) else None
+    if _pid or _pooled:
+        logger.info("[probe] building stratified loaders (participant=%s, pooled=%s)", _pid, bool(_pooled))
         from imu_lm.data.loaders import make_per_participant_loaders
         loaders = make_per_participant_loaders(cfg, _pid)
     else:
@@ -312,11 +313,13 @@ def main(cfg: Any, run_dir: str):
     unknown_id = labels_cfg.get("unknown_id", None)
     drop_unknown = bool(labels_cfg.get("drop_unknown", True))
     min_count = int(labels_cfg.get("min_count_per_class", 0))
+    allowed_raw_labels = probe_cfg.get("_vocab_scaling_classes", None)
     label_map = build_label_map(
         train_loader, cfg,
         unknown_id=unknown_id,
         drop_unknown=drop_unknown,
         min_count=min_count,
+        allowed_raw_labels=allowed_raw_labels,
     )
     
     # Build activity name mapping (dataset_activity_id → string name)
