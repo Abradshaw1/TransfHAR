@@ -369,6 +369,13 @@ def make_per_participant_loaders(cfg: Any, participant_id: str = None) -> Dict[s
 
     ds_col = cfg_get(cfg, ["data", "dataset_column"], "dataset")
     sess_col = cfg_get(cfg, ["data", "session_column"], "session_id")
+
+    # Apply probe_task session filter (same as make_loaders)
+    probe_task = cfg_get(cfg, ["probe", "probe_task"], None)
+    if probe_task:
+        mask = si[sess_col].astype(str).str.lower().str.startswith(probe_task.lower())
+        si = si[mask].reset_index(drop=True)
+        logger.info("[probe] probe_task=%s filtered sessions=%d", probe_task, len(si))
     keys = [SessionKey(r[ds_col], str(r[subj_col]), str(r[sess_col])) for _, r in si.iterrows()]
     full = WindowDataset(parquet_path, si, keys, cfg, split_name="probe")
     n = len(full)
@@ -389,17 +396,38 @@ def make_per_participant_loaders(cfg: Any, participant_id: str = None) -> Dict[s
     train_idx, val_idx, test_idx = [], [], []
     for lbl in np.unique(wlabels):
         ci = np.where(wlabels == lbl)[0]
-        rng.shuffle(ci)
+        rng.shuffle(ci)  # randomize within each class before splitting
         b = (np.cumsum(ratios) * len(ci)).astype(int)
         train_idx.extend(ci[:b[0]].tolist())
         val_idx.extend(ci[b[0]:b[1]].tolist())
         test_idx.extend(ci[b[1]:].tolist())
-    rng.shuffle(train_idx)
-    rng.shuffle(val_idx)
 
+    # Sort each split by session (once) so SessionGroupedBatchSampler sees contiguous groups
+    def _sort_by_session(idxs):
+        arr = np.array(idxs)
+        sess = np.array([full._sess_idx[i] for i in arr], dtype=np.int32)
+        return arr[np.argsort(sess, kind="stable")].tolist(), sess[np.argsort(sess, kind="stable")]
+
+    persistent = nw > 0
     loaders: Dict[str, DataLoader] = {}
     for name, sl, bs, shuf in [("probe_train", train_idx, batch_size, True), ("probe_val", val_idx, eval_bs, False), ("probe_test", test_idx, eval_bs, False)]:
         if sl:
-            loaders[f"{name}_loader"] = DataLoader(Subset(full, sl), batch_size=bs, shuffle=shuf, num_workers=nw, pin_memory=pin, drop_last=False, collate_fn=collate_skip_none)
+            sl_sorted, sub_sess_idx = _sort_by_session(sl)
+            subset = Subset(full, sl_sorted)
+            if shuf:
+                batch_sampler = SessionGroupedBatchSampler(
+                    sub_sess_idx, bs, shuffle=True, drop_last=False,
+                )
+                loaders[f"{name}_loader"] = DataLoader(
+                    subset, batch_sampler=batch_sampler, num_workers=nw,
+                    pin_memory=pin, collate_fn=collate_skip_none,
+                    persistent_workers=persistent,
+                )
+            else:
+                loaders[f"{name}_loader"] = DataLoader(
+                    subset, batch_size=bs, shuffle=False, num_workers=nw,
+                    pin_memory=pin, drop_last=False, collate_fn=collate_skip_none,
+                    persistent_workers=persistent,
+                )
     logger.info("[probe] participant=%s classes=%d train=%d val=%d test=%d", participant_id, len(np.unique(wlabels)), len(train_idx), len(val_idx), len(test_idx))
     return loaders

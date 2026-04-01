@@ -1,6 +1,6 @@
 paths:
   runs_root: "/shared/imu_lm/TransfHAR/runs/"
-  dataset_path: "/shared/UIST_apple_watch_study_clean_data.parquet"
+  dataset_path: "/shared/imu_lm/IMULM_master_dataset_v2.parquet"
 
 logging:
   log_every_steps: 5
@@ -17,7 +17,7 @@ data:
   time_column: timestamp_ns
   label_column: dataset_activity_id
   label_name_column: dataset_activity_label  # string activity name for metrics display
-  sensor_columns: [acc_x, acc_y, acc_z]
+  sensor_columns: [acc_x, acc_y, acc_z] 
   train_on_datasets: ["wear"]          # null = all datasets (minus probe); or list e.g. [capture24, opportunity_plus_plus]
   drop_na: false
   num_workers: 8
@@ -29,7 +29,7 @@ splits:
   seed: 0
   group_key: subject_id        
   shuffle: true
-  probe_dataset: apple_watch_study          # excluded from pretraining splits; used as probe eval target
+  probe_dataset: prism          # excluded from pretraining splits; used as probe eval target
   val_ratio: 0.05               # for non-probe training split only
   test_ratio: 0               # held-out test set (used by supervised eval) set to 0 when running MAE
 

@@ -289,6 +289,9 @@ def main(cfg: Any, run_dir: str):
     probe_dataset = cfg.get("splits", {}).get("probe_dataset", None) if isinstance(cfg, dict) else None
     _pid = cfg.get("_participant_id") if isinstance(cfg, dict) else None
     _pooled = cfg.get("_pooled_stratified") if isinstance(cfg, dict) else None
+    # Allow config-driven per-class stratified splitting (probe.stratified_by_class: true)
+    if not _pooled and probe_cfg.get("stratified_by_class", False):
+        _pooled = True
     if _pid or _pooled:
         logger.info("[probe] building stratified loaders (participant=%s, pooled=%s)", _pid, bool(_pooled))
         from imu_lm.data.loaders import make_per_participant_loaders
@@ -399,6 +402,7 @@ def main(cfg: Any, run_dir: str):
     )
 
     num_epochs = int(train_cfg.get("num_epochs", 1000000))
+    min_epochs = int(train_cfg.get("min_epochs", 0))
     grad_clip = float(train_cfg.get("grad_clip_norm", 0.0))
     use_amp = bool(train_cfg.get("amp", True))
     selection_metric = train_cfg.get("selection_metric", "macro_f1")
@@ -468,7 +472,7 @@ def main(cfg: Any, run_dir: str):
         else:
             epochs_no_improve += 1
 
-        if epochs_no_improve >= patience:
+        if epochs_no_improve >= patience and epoch >= min_epochs:
             break
 
     # Test eval using best checkpoint if available
