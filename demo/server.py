@@ -301,6 +301,9 @@ def udp_listener(host: str, port: int):
     sock.settimeout(1.0)
     logger.info("UDP listening on %s:%d", host, port)
 
+    _pkt_count = 0
+    _sample_count = 0
+
     while True:
         try:
             data, addr = sock.recvfrom(65535)
@@ -310,7 +313,10 @@ def udp_listener(host: str, port: int):
             logger.error("UDP error: %s", e)
             continue
 
+        _pkt_count += 1
         text = data.decode("utf-8", errors="ignore").strip()
+        if _pkt_count <= 3:
+            logger.info("UDP pkt #%d from %s (%d bytes): %s", _pkt_count, addr, len(data), text[:200])
 
         # Control messages from Watch-Data-Streamer
         if text in {"client initialized", "stop"}:
@@ -351,17 +357,15 @@ def udp_listener(host: str, port: int):
 # Inference loop — continuously processes windows from the buffer
 # ═══════════════════════════════════════════════════════════════════════════
 
-def inference_loop():
-    """Background thread: pull windows → preprocess → encode → record/classify → push dashboard."""
-    logger.info("Inference loop running")
+# Latest predictions (shared between inference_loop and signal_push)
+_latest_preds: list = []
+_preds_lock = threading.Lock()
 
+
+def signal_push():
+    """Fast thread (~30 Hz): push raw signals + latest predictions to dashboard."""
+    logger.info("Signal push running @ ~30 Hz")
     while True:
-        window_np = BUFFER.try_window()
-        if window_np is None:
-            time.sleep(0.02)
-            continue
-
-        # Raw signal for chart
         recent = BUFFER.recent(150)
         sig = {
             "acc_x": recent[:, 0].tolist()[-100:],
@@ -371,6 +375,31 @@ def inference_loop():
             "gyro_y": recent[:, 4].tolist()[-100:],
             "gyro_z": recent[:, 5].tolist()[-100:],
         }
+        with _preds_lock:
+            preds = list(_latest_preds)
+        socketio.emit("update", {
+            "mode": STATE.mode,
+            "signals": sig,
+            "predictions": preds,
+            "top_label": STATE.pred_label if STATE.mode == "infer" else "",
+            "top_confidence": round(STATE.pred_conf, 1) if STATE.mode == "infer" else 0.0,
+            "inference_ms": round(STATE.infer_ms, 1),
+            "current_label": STATE.current_label,
+            "recorded_counts": {k: len(v) for k, v in STATE.recorded.items()},
+        })
+        time.sleep(1.0 / 30)  # ~30 fps
+
+
+def inference_loop():
+    """Background thread: pull windows → preprocess → encode → record/classify."""
+    global _latest_preds
+    logger.info("Inference loop running")
+
+    while True:
+        window_np = BUFFER.try_window()
+        if window_np is None:
+            time.sleep(0.02)
+            continue
 
         # Encode
         emb = encode_window(window_np)
@@ -397,16 +426,8 @@ def inference_loop():
                     all_preds.append({"label": lbl, "confidence": round(probs[i].item(), 4)})
                 all_preds.sort(key=lambda x: x["confidence"], reverse=True)
 
-        socketio.emit("update", {
-            "mode": STATE.mode,
-            "signals": sig,
-            "predictions": all_preds,
-            "top_label": STATE.pred_label if STATE.mode == "infer" else "",
-            "top_confidence": round(STATE.pred_conf, 1) if STATE.mode == "infer" else 0.0,
-            "inference_ms": round(STATE.infer_ms, 1),
-            "current_label": STATE.current_label,
-            "recorded_counts": {k: len(v) for k, v in STATE.recorded.items()},
-        })
+        with _preds_lock:
+            _latest_preds = all_preds
 
         time.sleep(0.01)
 
@@ -716,6 +737,7 @@ def main():
         threading.Thread(target=udp_listener, args=(args.udp_host, args.udp_port), daemon=True).start()
 
     threading.Thread(target=inference_loop, daemon=True).start()
+    threading.Thread(target=signal_push, daemon=True).start()
 
     logger.info("═" * 50)
     logger.info("Dashboard  → http://localhost:%d", args.web_port)
