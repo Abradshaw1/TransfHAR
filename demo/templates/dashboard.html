@@ -9,264 +9,212 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f8fafc; color: #111827; min-height: 100vh;
+    background: #fff; color: #18181b; min-height: 100vh;
   }
 
+  /* ── Two-column grid: 1fr 3fr ── */
   .layout {
-    max-width: 1600px; margin: 0 auto; padding: 24px;
-    display: flex; flex-direction: column; gap: 16px; min-height: 100vh;
+    max-width: 2000px; margin: 0 auto;
+    padding: 40px 40px;
+    display: grid;
+    grid-template-columns: 1fr 3fr;
+    gap: 64px;
+    align-items: start;
   }
 
-  .main-grid {
-    display: grid; grid-template-columns: 1fr 4fr; gap: 16px; flex: 1;
+  /* ── Left column ── */
+  .left { text-align: center; }
+
+  .pred-title { font-size: 28px; color: #2563eb; margin-bottom: 8px; }
+  .pred-label {
+    font-size: 100px; font-weight: 800; text-transform: uppercase;
+    line-height: 1; letter-spacing: -0.03em; color: #18181b;
+    margin-bottom: 4px;
+  }
+  .pred-conf { font-size: 24px; color: #71717a; margin-bottom: 32px; }
+
+  .class-list { margin: 0 auto; max-width: 280px; }
+  .class-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 4px 16px; font-size: 20px;
+  }
+  .class-name { font-weight: 400; color: #3f3f46; }
+  .class-pct { font-weight: 500; color: #3f3f46; }
+
+  /* ── Watch ── */
+  .watch {
+    position: relative;
+    width: 260px; margin: 40px auto 0;
+    border: 5px solid #d4d4d8;
+    border-radius: 48px;
+    background: #000; overflow: hidden;
+    padding: 20px 16px 16px;
+  }
+  .watch-crown {
+    position: absolute; right: -10px; top: 24px;
+    width: 10px; height: 40px; border-radius: 5px;
+    background: #3b82f6;
+  }
+  .watch-title {
+    text-align: center; font-size: 16px; font-weight: 500;
+    color: #fff; margin-bottom: 12px;
+  }
+  .watch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .wbtn {
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px 8px; border: none; border-radius: 16px;
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    color: #fff; cursor: pointer; text-align: center;
+    line-height: 1.2; transition: filter 0.15s;
+  }
+  .wbtn:hover { filter: brightness(1.1); }
+  .wbtn:active { filter: brightness(0.9); }
+  .wbtn-green { background: #22c55e; }
+  .wbtn-red { background: #ef4444; }
+  .wbtn-blue { background: #60a5fa; }
+  .wbtn-yellow { background: #facc15; color: #18181b; }
+
+  .watch-input {
+    width: 100%; margin-top: 10px; padding: 7px 10px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px; color: #fff; font-size: 11px; outline: none;
+    font-family: inherit;
+  }
+  .watch-input::placeholder { color: rgba(255,255,255,0.3); }
+  .watch-input:focus { border-color: #3b82f6; }
+  .watch-status {
+    font-size: 10px; color: rgba(255,255,255,0.35);
+    text-align: center; margin-top: 6px; min-height: 14px;
+  }
+  .watch-status.error { color: #ef4444; }
+  .watch-tags {
+    display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-top: 4px;
+  }
+  .watch-tag {
+    font-size: 9px; padding: 2px 6px; border-radius: 6px;
+    background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.5);
   }
 
-  /* ── Cards ── */
-  .card {
-    background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-  }
+  /* ── Right column: charts ── */
+  .right { }
+  .section-title { font-size: 28px; font-weight: 600; color: #27272a; margin-bottom: 8px; }
+  .section-title.gyro { margin-top: 32px; }
 
-  /* ── Predictions Panel (left) ── */
-  .pred-panel {
-    display: flex; flex-direction: column; padding: 24px;
+  .sig-row {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    align-items: center;
+    min-height: 100px;
   }
-  .pred-panel h2 { font-size: 22px; font-weight: 700; color: #111827; }
-  .pred-active {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 13px; font-weight: 500; color: #16a34a; margin-top: 8px;
-  }
-  .pred-active .dot {
-    position: relative; width: 8px; height: 8px;
-  }
-  .pred-active .dot::before {
-    content: ''; position: absolute; inset: 0; border-radius: 50%;
-    background: #22c55e; animation: ping 1.5s cubic-bezier(0,0,0.2,1) infinite;
-    opacity: 0.75;
-  }
-  .pred-active .dot::after {
-    content: ''; position: absolute; inset: 0; border-radius: 50%;
-    background: #22c55e;
-  }
-  @keyframes ping { 75%,100% { transform: scale(2); opacity: 0; } }
-
-  .pred-idle {
-    flex: 1; display: flex; align-items: center; justify-content: center;
-    color: #9ca3af; font-size: 14px;
-  }
-
-  .pred-top { margin-top: 24px; margin-bottom: 24px; }
-  .pred-top-label { font-size: 42px; font-weight: 700; color: #111827; }
-  .pred-top-conf { font-size: 28px; font-weight: 600; color: #3b82f6; margin-top: 4px; }
-
-  .pred-list { border-top: 1px solid #e5e7eb; padding-top: 16px; }
-  .pred-row { margin-bottom: 12px; }
-  .pred-row-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-  .pred-row-label { font-size: 13px; font-weight: 500; color: #374151; }
-  .pred-row-conf { font-size: 13px; color: #6b7280; }
-  .pred-bar { height: 6px; background: #f3f4f6; border-radius: 3px; overflow: hidden; }
-  .pred-bar-fill { height: 100%; background: #3b82f6; border-radius: 3px; transition: width 0.3s; }
-
-  /* ── IMU Charts (right) ── */
-  .charts-col { display: flex; flex-direction: column; gap: 12px; }
-  .chart-card { padding: 16px 20px; }
-  .chart-card h3 { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 8px; }
-  .chart-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .chart-label { font-size: 12px; font-weight: 500; width: 40px; text-align: right; flex-shrink: 0; }
-  .chart-cv {
-    flex: 1; height: 50px; background: #fff; border-radius: 6px;
-  }
-
-  /* ── Controls ── */
-  .controls-card { padding: 16px 20px; }
-  .controls-card h3 { font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 12px; }
-  .controls-row {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px;
-  }
-  .btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    padding: 10px 16px; border: 1px solid #d1d5db; border-radius: 8px;
-    font-family: inherit; font-size: 13px; font-weight: 500;
-    cursor: pointer; transition: all 0.15s; background: #fff; color: #374151;
-  }
-  .btn:hover { background: #f9fafb; border-color: #9ca3af; }
-  .btn:active { transform: scale(0.98); }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-  .btn-primary:hover { background: #1d4ed8; }
-  .btn-danger { background: #ef4444; color: #fff; border-color: #ef4444; }
-  .btn-danger:hover { background: #dc2626; }
-  .btn-secondary { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
-
-  .btn-full { grid-column: 1 / -1; }
-
-  .label-input {
-    width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px;
-    font-family: inherit; font-size: 13px; outline: none; transition: border 0.2s;
-    margin-bottom: 8px;
-  }
-  .label-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
-
-  /* ── Status ── */
-  .status-bar {
-    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
-    padding: 0 4px;
-  }
-  .status-msg { font-size: 13px; color: #6b7280; }
-  .status-msg.error { color: #ef4444; }
-  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
-  .tag {
-    font-size: 12px; padding: 2px 10px; border-radius: 10px;
-    background: #eff6ff; color: #2563eb; font-weight: 500;
-  }
-
-  .badge {
-    font-size: 11px; padding: 3px 10px; border-radius: 12px;
-    font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
-  }
-  .badge-idle { background: #f3f4f6; color: #9ca3af; }
-  .badge-record { background: #fef2f2; color: #ef4444; }
-  .badge-infer { background: #f0fdf4; color: #16a34a; }
-  .badge-train { background: #eff6ff; color: #2563eb; }
-
-  .header-row {
-    display: flex; align-items: center; justify-content: space-between;
-  }
-
-  /* ── SVG Icons (inline) ── */
-  .icon { width: 16px; height: 16px; flex-shrink: 0; }
+  .sig-label { font-size: 22px; font-weight: 600; padding-left: 4px; }
+  .sig-canvas { width: 100%; height: 90px; display: block; }
 </style>
 </head>
 <body>
 <div class="layout">
 
-  <!-- Main Grid: Predictions | Charts -->
-  <div class="main-grid">
+  <!-- LEFT -->
+  <div class="left">
+    <div class="pred-title">Predictions</div>
+    <div class="pred-label" id="predLabel">--</div>
+    <div class="pred-conf" id="predConf">--</div>
 
-    <!-- Predictions Panel -->
-    <div class="card pred-panel" id="predPanel">
-      <div class="header-row">
-        <h2>Live Predictions</h2>
-        <span id="badge" class="badge badge-idle">Idle</span>
-      </div>
-      <div id="predActive" class="pred-active" style="display:none;">
-        <span class="dot"></span> Active
-      </div>
-
-      <div id="predContent">
-        <div id="predIdle" class="pred-idle">
-          Start live recognition
-        </div>
-      </div>
+    <div class="class-list" id="classList">
+      <div class="class-row"><span class="class-name">--</span><span class="class-pct">--%</span></div>
+      <div class="class-row"><span class="class-name">--</span><span class="class-pct">--%</span></div>
+      <div class="class-row"><span class="class-name">--</span><span class="class-pct">--%</span></div>
+      <div class="class-row"><span class="class-name">--</span><span class="class-pct">--%</span></div>
     </div>
 
-    <!-- IMU Charts -->
-    <div class="charts-col">
-      <!-- Accelerometer -->
-      <div class="card chart-card">
-        <h3>Accelerometer</h3>
-        <div class="chart-row">
-          <span class="chart-label" style="color:#3b82f6">X-axis</span>
-          <canvas class="chart-cv" id="cvAX"></canvas>
-        </div>
-        <div class="chart-row">
-          <span class="chart-label" style="color:#3b82f6">Y-axis</span>
-          <canvas class="chart-cv" id="cvAY"></canvas>
-        </div>
-        <div class="chart-row">
-          <span class="chart-label" style="color:#3b82f6">Z-axis</span>
-          <canvas class="chart-cv" id="cvAZ"></canvas>
-        </div>
+    <div class="watch">
+      <div class="watch-crown"></div>
+      <div class="watch-title">Controls</div>
+      <div class="watch-grid">
+        <button class="wbtn wbtn-green" id="btnRec">Record Activity</button>
+        <button class="wbtn wbtn-red" id="btnStop">Stop Recording</button>
+        <button class="wbtn wbtn-blue" id="btnTrain">Train Model</button>
+        <button class="wbtn wbtn-yellow" id="btnAdd">Add Activity +</button>
       </div>
-
-      <!-- Gyroscope -->
-      <div class="card chart-card">
-        <h3>Gyroscope</h3>
-        <div class="chart-row">
-          <span class="chart-label" style="color:#f97316">X-axis</span>
-          <canvas class="chart-cv" id="cvGX"></canvas>
-        </div>
-        <div class="chart-row">
-          <span class="chart-label" style="color:#22c55e">Y-axis</span>
-          <canvas class="chart-cv" id="cvGY"></canvas>
-        </div>
-        <div class="chart-row">
-          <span class="chart-label" style="color:#22c55e">Z-axis</span>
-          <canvas class="chart-cv" id="cvGZ"></canvas>
-        </div>
-      </div>
+      <input type="text" class="watch-input" id="labelIn" placeholder="Activity name..." autocomplete="off" />
+      <div id="statusMsg" class="watch-status"></div>
+      <div id="tags" class="watch-tags"></div>
     </div>
   </div>
 
-  <!-- Controls -->
-  <div class="card controls-card">
-    <h3>Controls</h3>
-    <input type="text" class="label-input" id="labelIn" placeholder="Activity name..." autocomplete="off" />
-    <div class="controls-row">
-      <button class="btn btn-primary" id="btnRec">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="6"/><path d="M8.5 8.5 6 3m9.5 5.5L18 3M8.5 15.5 6 21m9.5-5.5L18 21"/></svg>
-        Start Recording
-      </button>
-      <button class="btn" id="btnTrain">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
-        Train Model
-      </button>
-      <button class="btn" id="btnInfer">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 0 0-8 8c0 3 1.5 5.5 4 7v3h8v-3c2.5-1.5 4-4 4-7a8 8 0 0 0-8-8z"/><path d="M10 22h4"/></svg>
-        Inference
-      </button>
-      <button class="btn" id="btnAddClass">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Class
-      </button>
+  <!-- RIGHT -->
+  <div class="right">
+    <div class="section-title">Accelerometer</div>
+    <div class="sig-row">
+      <div class="sig-label" style="color:#2563eb">X</div>
+      <canvas class="sig-canvas" id="cvAX"></canvas>
     </div>
-    <div class="controls-row">
-      <button class="btn btn-full btn-secondary" id="btnReset">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-        Redefine Classes
-      </button>
+    <div class="sig-row">
+      <div class="sig-label" style="color:#2563eb">Y</div>
+      <canvas class="sig-canvas" id="cvAY"></canvas>
+    </div>
+    <div class="sig-row">
+      <div class="sig-label" style="color:#2563eb">Z</div>
+      <canvas class="sig-canvas" id="cvAZ"></canvas>
+    </div>
+
+    <div class="section-title gyro">Gyroscope</div>
+    <div class="sig-row">
+      <div class="sig-label" style="color:#ea580c">X</div>
+      <canvas class="sig-canvas" id="cvGX"></canvas>
+    </div>
+    <div class="sig-row">
+      <div class="sig-label" style="color:#ea580c">Y</div>
+      <canvas class="sig-canvas" id="cvGY"></canvas>
+    </div>
+    <div class="sig-row">
+      <div class="sig-label" style="color:#ea580c">Z</div>
+      <canvas class="sig-canvas" id="cvGZ"></canvas>
     </div>
   </div>
 
-  <!-- Status -->
-  <div class="status-bar">
-    <span id="statusMsg" class="status-msg">Waiting for watch data...</span>
-    <div id="tags" class="tags"></div>
-  </div>
 </div>
 
 <script>
 const socket = io();
 const $ = id => document.getElementById(id);
 
-/* ── Canvas setup ── */
 const cvMap = {
   acc_x: $('cvAX'), acc_y: $('cvAY'), acc_z: $('cvAZ'),
   gyro_x: $('cvGX'), gyro_y: $('cvGY'), gyro_z: $('cvGZ'),
 };
 const cvColor = {
-  acc_x:'#3b82f6', acc_y:'#3b82f6', acc_z:'#3b82f6',
-  gyro_x:'#f97316', gyro_y:'#22c55e', gyro_z:'#22c55e',
+  acc_x:'#2563eb', acc_y:'#2563eb', acc_z:'#2563eb',
+  gyro_x:'#ea580c', gyro_y:'#ea580c', gyro_z:'#ea580c',
 };
 
+let didResize = false;
 function resizeAll() {
   Object.values(cvMap).forEach(c => {
-    c.width = c.offsetWidth * devicePixelRatio;
-    c.height = c.offsetHeight * devicePixelRatio;
+    const r = c.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) {
+      c.width = r.width * devicePixelRatio;
+      c.height = r.height * devicePixelRatio;
+      didResize = true;
+    }
   });
 }
 window.addEventListener('resize', resizeAll);
 setTimeout(resizeAll, 50);
+setTimeout(resizeAll, 300);
 
 function drawSig(key, data) {
   const cv = cvMap[key]; if (!cv || !data || !data.length) return;
+  if (!didResize) resizeAll();
   const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+  if (W === 0 || H === 0) return;
   ctx.clearRect(0, 0, W, H);
   let mn = Infinity, mx = -Infinity;
   for (const v of data) { if (v < mn) mn = v; if (v > mx) mx = v; }
-  const r = (mx - mn) || 1, pad = 0.1 * r; mn -= pad; mx += pad;
-  ctx.strokeStyle = cvColor[key]; ctx.lineWidth = 1.5 * devicePixelRatio;
-  ctx.lineJoin = 'round'; ctx.beginPath();
+  const rng = (mx - mn) || 1, pad = 0.12 * rng; mn -= pad; mx += pad;
+  ctx.strokeStyle = cvColor[key];
+  ctx.lineWidth = 2.5 * devicePixelRatio;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath();
   for (let i = 0; i < data.length; i++) {
     const x = (i / (data.length - 1)) * W;
     const y = H - ((data[i] - mn) / (mx - mn)) * H;
@@ -275,147 +223,58 @@ function drawSig(key, data) {
   ctx.stroke();
 }
 
-/* ── State ── */
+function renderPredictions(preds) {
+  if (!preds || preds.length === 0) return;
+  const top = preds[0];
+  $('predLabel').textContent = top.label.toUpperCase();
+  $('predConf').textContent = (top.confidence * 100).toFixed(0) + '% confidence';
+  let html = '';
+  for (const p of preds) {
+    html += `<div class="class-row"><span class="class-name">${p.label}</span><span class="class-pct">${(p.confidence*100).toFixed(0)}%</span></div>`;
+  }
+  $('classList').innerHTML = html;
+}
+
 let currentMode = 'idle';
 
-function updateBadge(mode) {
-  const b = $('badge');
-  b.className = 'badge badge-' + mode;
-  b.textContent = mode === 'record' ? 'Recording' : mode === 'infer' ? 'Live' : mode === 'train' ? 'Training' : 'Idle';
-}
-
-function renderPredictions(preds, mode) {
-  const content = $('predContent');
-  const active = $('predActive');
-
-  if (mode !== 'infer' || !preds || preds.length === 0) {
-    active.style.display = 'none';
-    content.innerHTML = '<div class="pred-idle">Start live recognition</div>';
-    return;
-  }
-
-  active.style.display = 'flex';
-  const top = preds[0];
-  let html = `
-    <div class="pred-top">
-      <div class="pred-top-label">${top.label}</div>
-      <div class="pred-top-conf">${(top.confidence * 100).toFixed(0)}%</div>
-    </div>
-    <div class="pred-list">
-  `;
-  for (let i = 1; i < preds.length; i++) {
-    const p = preds[i];
-    const pct = (p.confidence * 100).toFixed(0);
-    html += `
-      <div class="pred-row">
-        <div class="pred-row-header">
-          <span class="pred-row-label">${p.label}</span>
-          <span class="pred-row-conf">${pct}%</span>
-        </div>
-        <div class="pred-bar"><div class="pred-bar-fill" style="width:${pct}%"></div></div>
-      </div>
-    `;
-  }
-  html += '</div>';
-  content.innerHTML = html;
-}
-
-function updateButtons(mode) {
-  const isIdle = mode === 'idle';
-  const isRec = mode === 'record';
-  const isInf = mode === 'infer';
-
-  const btnRec = $('btnRec');
-  const btnTrain = $('btnTrain');
-  const btnInfer = $('btnInfer');
-
-  // Record button toggles
-  if (isRec) {
-    btnRec.className = 'btn btn-danger';
-    btnRec.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> Stop Recording`;
-  } else {
-    btnRec.className = 'btn btn-primary';
-    btnRec.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="6"/><path d="M8.5 8.5 6 3m9.5 5.5L18 3M8.5 15.5 6 21m9.5-5.5L18 21"/></svg> Start Recording`;
-    btnRec.disabled = !isIdle;
-  }
-
-  // Train
-  btnTrain.disabled = !isIdle;
-  if (mode === 'train') {
-    btnTrain.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg> Training...`;
-    btnTrain.className = 'btn btn-secondary';
-  } else {
-    btnTrain.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg> Train Model`;
-    btnTrain.className = 'btn';
-  }
-
-  // Inference toggle
-  if (isInf) {
-    btnInfer.className = 'btn btn-primary';
-    btnInfer.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 0 0-8 8c0 3 1.5 5.5 4 7v3h8v-3c2.5-1.5 4-4 4-7a8 8 0 0 0-8-8z"/><path d="M10 22h4"/></svg> Stop Inference`;
-  } else {
-    btnInfer.className = 'btn';
-    btnInfer.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 0 0-8 8c0 3 1.5 5.5 4 7v3h8v-3c2.5-1.5 4-4 4-7a8 8 0 0 0-8-8z"/><path d="M10 22h4"/></svg> Inference`;
-    btnInfer.disabled = !isIdle;
-  }
-
-  $('labelIn').disabled = !isIdle;
-}
-
-/* ── Socket events ── */
 socket.on('update', d => {
-  const mode = d.mode || 'idle';
-  currentMode = mode;
-  updateBadge(mode);
-  updateButtons(mode);
-  renderPredictions(d.predictions || [], mode);
-
+  currentMode = d.mode || 'idle';
+  renderPredictions(d.predictions || []);
   const sig = d.signals || {};
   for (const k of Object.keys(cvMap)) { if (sig[k]) drawSig(k, sig[k]); }
-
   const counts = d.recorded_counts || {};
   $('tags').innerHTML = Object.entries(counts)
-    .map(([k,v]) => `<span class="tag">${k}: ${v} windows</span>`).join('');
+    .map(([k,v]) => `<span class="watch-tag">${k}: ${v}</span>`).join('');
 });
 
 socket.on('status', d => {
   const el = $('statusMsg');
   el.textContent = d.msg || '';
-  el.className = d.ok === false ? 'status-msg error' : 'status-msg';
+  el.className = d.ok === false ? 'watch-status error' : 'watch-status';
 });
 
-/* ── Button handlers ── */
 $('btnRec').addEventListener('click', () => {
-  if (currentMode === 'record') {
-    socket.emit('stop_record');
-  } else {
-    const label = $('labelIn').value.trim();
-    if (!label) { $('statusMsg').textContent = 'Enter an activity name first'; $('statusMsg').className = 'status-msg error'; return; }
-    socket.emit('start_record', { label });
-  }
+  const label = $('labelIn').value.trim();
+  if (!label) { $('statusMsg').textContent = 'Enter activity name first'; $('statusMsg').className = 'watch-status error'; return; }
+  socket.emit('start_record', { label });
 });
-
-$('btnTrain').addEventListener('click', () => socket.emit('train'));
-
-$('btnInfer').addEventListener('click', () => {
-  if (currentMode === 'infer') {
-    socket.emit('stop_infer');
-  } else {
-    socket.emit('start_infer');
-  }
+$('btnStop').addEventListener('click', () => socket.emit('stop_record'));
+$('btnTrain').addEventListener('click', () => {
+  socket.emit('train');
+  const onStatus = d => {
+    if (d.msg && (d.msg.startsWith('Trained') || d.msg.startsWith('Need'))) {
+      socket.off('status', onStatus);
+      if (d.ok) setTimeout(() => socket.emit('start_infer'), 300);
+    }
+  };
+  socket.on('status', onStatus);
 });
-
-$('btnAddClass').addEventListener('click', () => {
-  $('labelIn').value = '';
-  $('labelIn').focus();
-  $('statusMsg').textContent = 'Enter a new activity name and click Record';
-  $('statusMsg').className = 'status-msg';
+$('btnAdd').addEventListener('click', () => {
+  if (currentMode === 'infer') socket.emit('stop_infer');
+  $('labelIn').value = ''; $('labelIn').focus();
+  $('statusMsg').textContent = 'Enter activity name, then Record';
+  $('statusMsg').className = 'watch-status';
 });
-
-$('btnReset').addEventListener('click', () => {
-  if (confirm('Clear all recorded data and trained probe?')) socket.emit('reset');
-});
-
 $('labelIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnRec').click(); });
 </script>
 </body>
