@@ -27,8 +27,8 @@
 
   .pred-title { font-size: 28px; color: #2563eb; margin-bottom: 8px; }
   .pred-label {
-    font-size: 100px; font-weight: 800; text-transform: uppercase;
-    line-height: 1; letter-spacing: -0.03em; color: #18181b;
+    font-size: 36px; font-weight: 400;
+    line-height: 1.2; color: #18181b;
     margin-bottom: 4px;
   }
   .pred-conf { font-size: 24px; color: #71717a; margin-bottom: 32px; }
@@ -55,6 +55,11 @@
     width: 10px; height: 40px; border-radius: 5px;
     background: #3b82f6;
   }
+  .watch-btn {
+    position: absolute; right: -9px; top: 76px;
+    width: 8px; height: 20px; border-radius: 4px;
+    background: #a1a1aa;
+  }
   .watch-title {
     text-align: center; font-size: 16px; font-weight: 500;
     color: #fff; margin-bottom: 12px;
@@ -72,7 +77,16 @@
   .wbtn-green { background: #22c55e; }
   .wbtn-red { background: #ef4444; }
   .wbtn-blue { background: #60a5fa; }
-  .wbtn-yellow { background: #facc15; color: #18181b; }
+  .wbtn-purple { background: #a78bfa; }
+  .wbtn-purple.active { background: #ef4444; }
+
+  .spinner {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+    border-radius: 50%; animation: spin 0.6s linear infinite;
+    margin-right: 4px; vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .watch-input {
     width: 100%; margin-top: 10px; padding: 7px 10px;
@@ -128,12 +142,13 @@
 
     <div class="watch">
       <div class="watch-crown"></div>
+      <div class="watch-btn"></div>
       <div class="watch-title">Controls</div>
       <div class="watch-grid">
         <button class="wbtn wbtn-green" id="btnRec">Record Activity</button>
         <button class="wbtn wbtn-red" id="btnStop">Stop Recording</button>
         <button class="wbtn wbtn-blue" id="btnTrain">Train Model</button>
-        <button class="wbtn wbtn-yellow" id="btnAdd">Add Activity +</button>
+        <button class="wbtn wbtn-purple" id="btnInfer">Infer</button>
       </div>
       <input type="text" class="watch-input" id="labelIn" placeholder="Activity name..." autocomplete="off" />
       <div id="statusMsg" class="watch-status"></div>
@@ -223,26 +238,56 @@ function drawSig(key, data) {
   ctx.stroke();
 }
 
-function renderPredictions(preds) {
-  if (!preds || preds.length === 0) return;
-  const top = preds[0];
-  $('predLabel').textContent = top.label.toUpperCase();
-  $('predConf').textContent = (top.confidence * 100).toFixed(0) + '% confidence';
+let knownClasses = [];
+let currentMode = 'idle';
+let inferring = false;
+
+function renderClassList(preds) {
+  if (knownClasses.length === 0) {
+    $('classList').innerHTML = '<div class="class-row"><span class="class-name">--</span><span class="class-pct">--%</span></div>'.repeat(4);
+    return;
+  }
   let html = '';
-  for (const p of preds) {
-    html += `<div class="class-row"><span class="class-name">${p.label}</span><span class="class-pct">${(p.confidence*100).toFixed(0)}%</span></div>`;
+  for (const cls of knownClasses) {
+    const p = preds.find(x => x.label === cls);
+    const pct = (inferring && p) ? (p.confidence * 100).toFixed(0) + '%' : '--%';
+    html += `<div class="class-row"><span class="class-name">${cls}</span><span class="class-pct">${pct}</span></div>`;
   }
   $('classList').innerHTML = html;
 }
 
-let currentMode = 'idle';
+function renderPredictions(preds) {
+  if (inferring && preds && preds.length > 0) {
+    const top = preds[0];
+    $('predLabel').textContent = top.label;
+    $('predConf').textContent = (top.confidence * 100).toFixed(0) + '% confidence';
+  } else {
+    $('predLabel').textContent = '--';
+    $('predConf').textContent = '--';
+  }
+  renderClassList(preds || []);
+}
+
+function updateInferBtn() {
+  const btn = $('btnInfer');
+  if (inferring) {
+    btn.textContent = 'Stop Inference';
+    btn.classList.add('active');
+  } else {
+    btn.textContent = 'Infer';
+    btn.classList.remove('active');
+  }
+}
 
 socket.on('update', d => {
   currentMode = d.mode || 'idle';
+  inferring = (currentMode === 'infer');
+  updateInferBtn();
   renderPredictions(d.predictions || []);
   const sig = d.signals || {};
   for (const k of Object.keys(cvMap)) { if (sig[k]) drawSig(k, sig[k]); }
   const counts = d.recorded_counts || {};
+  knownClasses = Object.keys(counts).sort();
   $('tags').innerHTML = Object.entries(counts)
     .map(([k,v]) => `<span class="watch-tag">${k}: ${v}</span>`).join('');
 });
@@ -260,20 +305,25 @@ $('btnRec').addEventListener('click', () => {
 });
 $('btnStop').addEventListener('click', () => socket.emit('stop_record'));
 $('btnTrain').addEventListener('click', () => {
+  const btn = $('btnTrain');
+  btn.innerHTML = '<span class="spinner"></span>Training...';
+  btn.style.pointerEvents = 'none';
   socket.emit('train');
   const onStatus = d => {
     if (d.msg && (d.msg.startsWith('Trained') || d.msg.startsWith('Need'))) {
       socket.off('status', onStatus);
-      if (d.ok) setTimeout(() => socket.emit('start_infer'), 300);
+      btn.textContent = 'Train Model';
+      btn.style.pointerEvents = '';
     }
   };
   socket.on('status', onStatus);
 });
-$('btnAdd').addEventListener('click', () => {
-  if (currentMode === 'infer') socket.emit('stop_infer');
-  $('labelIn').value = ''; $('labelIn').focus();
-  $('statusMsg').textContent = 'Enter activity name, then Record';
-  $('statusMsg').className = 'watch-status';
+$('btnInfer').addEventListener('click', () => {
+  if (inferring) {
+    socket.emit('stop_infer');
+  } else {
+    socket.emit('start_infer');
+  }
 });
 $('labelIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnRec').click(); });
 </script>
