@@ -10,19 +10,20 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #fff; color: #18181b; min-height: 100vh;
+  overflow: hidden;
 }
 
-/* ── Main grid: 1fr 3fr (matches reference) ── */
 .page {
-  max-width: 2000px; margin: 0 auto;
+  width: 1800px;
+  min-height: 100vh;
   padding: 40px 40px;
   display: grid;
   grid-template-columns: 1fr 3fr;
   gap: 64px;
   align-items: center;
+  transform-origin: top left;
 }
 
-/* ── Left column ── */
 .left { text-align: center; }
 .pred-title { font-size: 28px; margin-bottom: 4px; }
 .pred-label {
@@ -39,32 +40,56 @@ body {
 .class-pct { color: #18181b; }
 
 /* ── Watch ── */
+.watch-wrapper {
+  position: relative;
+  width: 400px; margin: 48px auto 0;
+}
 .watch {
   position: relative;
-  width: 330px; height: 340px; margin: 48px auto 0;
+  width: 400px; height: 440px;
   border: 6px solid #d4d4d8;
-  border-radius: 56px;
+  border-radius: 64px;
   background: #000; overflow: hidden;
   display: flex; flex-direction: column;
-  padding: 20px 16px 16px;
+  padding: 24px 20px 20px;
 }
-.watch-crown {
-  position: absolute; right: -12px; top: 24px;
-  width: 12px; height: 48px; border-radius: 6px;
-  background: #a855f6;
+
+/* ── Digital Crown: cylindrical barrel from the side ── */
+.digital-crown {
+  position: absolute;
+  right: -15px; top: 85px;
+  width: 16px; height: 48px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #9a9aa0 0%, #c8c8cc 20%, #e8e8ec 45%, #d4d4d8 65%, #a8a8b0 100%);
+  border: 1px solid #8a8a90;
+  box-shadow: 2px 0 4px rgba(0,0,0,0.2);
+  z-index: 1;
+  overflow: hidden;
 }
+/* horizontal grip ridges */
+.digital-crown::after {
+  content: '';
+  position: absolute; top: 4px; left: 2px; right: 2px; bottom: 4px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0px, transparent 2.5px,
+    rgba(0,0,0,0.15) 2.5px, rgba(0,0,0,0.15) 3.5px
+  );
+}
+
 .watch-title {
-  text-align: center; font-size: 22px; font-weight: 500;
-  color: #fff; margin-bottom: 12px;
+  text-align: center; font-size: 26px; font-weight: 600;
+  color: #fff; margin-bottom: 16px;
 }
 .watch-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-  flex: 1;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  height: 180px;
 }
 .wbtn {
   display: flex; align-items: center; justify-content: center;
   border: none; border-radius: 16px;
-  font-family: inherit; font-size: 15px; font-weight: 600;
+  font-family: inherit; font-size: 19px; font-weight: 600;
   color: #fff; cursor: pointer; text-align: center;
   line-height: 1.3; transition: filter 0.15s;
 }
@@ -83,23 +108,23 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .watch-input {
-  width: 100%; margin-top: 8px; padding: 8px 10px;
+  width: 100%; margin-top: 12px; padding: 14px 16px;
   background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 8px; color: #fff; font-size: 13px; outline: none;
+  border-radius: 12px; color: #fff; font-size: 25px; outline: none;
   font-family: inherit; flex-shrink: 0;
 }
 .watch-input::placeholder { color: rgba(255,255,255,0.3); }
 .watch-input:focus { border-color: #3b82f6; }
 .watch-status {
-  font-size: 11px; color: rgba(255,255,255,0.4);
-  text-align: center; margin-top: 4px; min-height: 16px; flex-shrink: 0;
+  font-size: 13px; color: rgba(255,255,255,0.4);
+  text-align: center; margin-top: 6px; min-height: 18px; flex-shrink: 0;
 }
 .watch-status.error { color: #ef4444; }
 .watch-tags {
-  display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-top: 3px; flex-shrink: 0;
+  display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin-top: 4px; flex-shrink: 0;
 }
 .watch-tag {
-  font-size: 10px; padding: 2px 6px; border-radius: 6px;
+  font-size: 12px; padding: 3px 8px; border-radius: 6px;
   background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.5);
 }
 
@@ -135,18 +160,20 @@ body {
       <div class="class-row"><span class="class-name">--</span><span class="class-pct">--%</span></div>
     </div>
 
-    <div class="watch">
-      <div class="watch-crown"></div>
-      <div class="watch-title">Controls</div>
-      <div class="watch-grid">
-        <button class="wbtn wbtn-green" id="btnRec">Record Activity</button>
-        <button class="wbtn wbtn-red" id="btnStop">Stop Recording</button>
-        <button class="wbtn wbtn-blue" id="btnTrain">Train Model</button>
-        <button class="wbtn wbtn-purple" id="btnInfer">Infer</button>
+    <div class="watch-wrapper">
+      <div class="digital-crown"></div>
+      <div class="watch">
+        <div class="watch-title">Controls</div>
+        <div class="watch-grid">
+          <button class="wbtn wbtn-green" id="btnRec">Record Activity</button>
+          <button class="wbtn wbtn-red" id="btnStop">Stop Recording</button>
+          <button class="wbtn wbtn-blue" id="btnTrain">Train Model</button>
+          <button class="wbtn wbtn-purple" id="btnInfer">Infer</button>
+        </div>
+        <input type="text" class="watch-input" id="labelIn" placeholder="Activity name..." autocomplete="off"/>
+        <div id="statusMsg" class="watch-status"></div>
+        <div id="tags" class="watch-tags"></div>
       </div>
-      <input type="text" class="watch-input" id="labelIn" placeholder="Activity name..." autocomplete="off"/>
-      <div id="statusMsg" class="watch-status"></div>
-      <div id="tags" class="watch-tags"></div>
     </div>
   </div>
 
@@ -368,6 +395,21 @@ $('btnInfer').addEventListener('click', () => {
   }
 });
 $('labelIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnRec').click(); });
+
+/* ── Auto-scale: fit height, stretch width to fill ── */
+function fitToScreen() {
+  const page = document.querySelector('.page');
+  page.style.width = '1800px';
+  page.style.transform = '';
+  const scale = Math.min(window.innerHeight / page.scrollHeight, 1);
+  page.style.width = (window.innerWidth / scale) + 'px';
+  page.style.transform = `scale(${scale})`;
+  document.body.style.height = '100vh';
+  setTimeout(resizeAll, 50);
+}
+window.addEventListener('resize', fitToScreen);
+setTimeout(fitToScreen, 100);
+setTimeout(fitToScreen, 500);
 </script>
 </body>
 </html>
