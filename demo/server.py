@@ -387,7 +387,7 @@ def signal_push():
             "current_label": STATE.current_label,
             "recorded_counts": {k: len(v) for k, v in STATE.recorded.items()},
         })
-        time.sleep(1.0 / 30)  # ~30 fps
+        time.sleep(1.0 / 100)  # ~100 fps
 
 
 def inference_loop():
